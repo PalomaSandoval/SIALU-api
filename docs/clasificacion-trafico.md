@@ -1,0 +1,11 @@
+# Clasificación del tráfico por IP
+
+La pantalla conserva `/catalogos/sentidos-flujo` y muestra únicamente las cuatro clasificaciones predefinidas, sus criterios y el significado de Sin clasificar. No consulta eventos ni expone formularios de redes, contadores o acciones de alta/edición. La configuración de redes corresponde a una pantalla separada. La API GET `/api/v1/catalogos/clasificacion-trafico?page=1` devuelve hasta 50 eventos recientes, su explicación por IP, el resumen global y los rangos institucionales vigentes. POST `/api/v1/catalogos/clasificacion-trafico/redes` registra un nombre y un CIDR confirmado (`confirmado: true`) en el catálogo existente `catdRedesInstitucionales`. Ambos requieren sesión de administrador y POST requiere CSRF. Los CIDR se normalizan y se calculan los límites binarios para IPv4 e IPv6.
+
+`TrafficIpClassifier` compara las IP originales con los rangos oficiales vigentes y prefiere el prefijo más específico. No utiliza inventario de equipos ni zonas del firewall. Una coincidencia indica UACH; fuera de los rangos se considera externa solo si existe al menos un rango de esa versión IP. Con IP faltante, inválida o sin rangos de su versión queda SIN_CLASIFICAR. La lista debe contener todas las redes institucionales, incluyendo las públicas propias. Las redes privadas no se consideran UACH automáticamente.
+
+Externa → UACH = ENTRANTE; UACH → externa = SALIENTE; UACH → UACH = INTERNO; externa → externa = EXTERNO. Se recalcula al consultar, por lo que incluye historial y próximos eventos sin modificar los registros originales. El resumen incluye tráfico y amenazas con detalle de red. Para grandes volúmenes conviene materializar o agregar estos resultados; actualmente el resumen recorre los eventos y limita la respuesta a 50 filas por página.
+
+`php scripts/install-traffic-classification.php` aplica 007 y retira la vista anterior basada en zonas. Conserva los catálogos anteriores. No carga rangos de ejemplo ni presupone que el catálogo actual esté completo. Los administradores deben registrar únicamente rangos oficiales confirmados.
+
+Verificación: `php tests/integrations/traffic-classification-api.php`; agregar `--database` verifica la API y la persistencia con rollback.
