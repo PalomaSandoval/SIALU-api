@@ -1,4 +1,4 @@
--- Corrige la referencia a la unidad institucional; conserva el filtro de redes vigentes.
+-- Red vigente más específica que contiene la IP; sin unidad institucional (migración 015) ni criticidad (migración 017).
 SET ANSI_NULLS ON;
 GO
 SET QUOTED_IDENTIFIER ON;
@@ -9,7 +9,7 @@ AS
 RETURN
 (
     SELECT TOP (1)
-           r.IdRedInstitucional, r.Nombre, r.Tipo, r.Zona, r.Campus, r.IdUnidadInstitucional, r.IdCriticidad
+           r.IdRedInstitucional, r.Nombre, r.Tipo, r.Zona, r.Campus
     FROM dbo.catdRedesInstitucionales AS r
     WHERE r.Vigente = 1
       AND DATALENGTH(@IPBin)=DATALENGTH(r.RangoInicio)

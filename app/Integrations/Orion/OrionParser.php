@@ -38,22 +38,13 @@ class OrionParser implements EventParserInterface
             throw new InvalidArgumentException('Fecha fuera del rango de SQL Server.');
         }
 
-        if (isset($rawEvent['Message']) && ! is_string($rawEvent['Message'])) {
-            throw new InvalidArgumentException('Message debe ser texto.');
-        }
-        if (isset($rawEvent['Severity']) && ! is_string($rawEvent['Severity']) && ! is_int($rawEvent['Severity'])) {
-            throw new InvalidArgumentException('Severity debe ser un valor escalar de la fuente.');
-        }
-        $sourceSeverity = isset($rawEvent['Severity']) && trim((string) $rawEvent['Severity']) !== '' ? (string) $rawEvent['Severity'] : null;
-
+        // Availability transitions have no source severity; alert severity is ingested by OrionAlertParser.
         return [
             'external_id' => (string) $rawEvent['EventID'],
             'node_id' => (string) $rawEvent['NetworkNode'],
             'occurred_at' => $occurredAt,
             'event_type' => $type,
             'state' => $type === '1' ? 'DOWN' : 'UP',
-            'severity' => $sourceSeverity,
-            'message' => $rawEvent['Message'] ?? null,
             'action' => null,
             'raw_payload' => $rawEvent,
         ];

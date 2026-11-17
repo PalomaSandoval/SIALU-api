@@ -87,7 +87,10 @@ class SyncIngestionCommand extends Command
                     if ($state === null && $start >= $end) {
                         throw new RuntimeException('La fecha inicial debe ser anterior a la ventana consultada.');
                     }
-                    $state ??= ['last_time' => $start->toIso8601String(), 'last_id' => '0'];
+                    $state ??= ['last_time' => $start->toIso8601String(), 'last_id' => '0', 'read_from' => $start->toIso8601String()];
+                    // read_from/read_until prove which span of Orion.Events was read without gaps (EventTime <= read_until).
+                    // A cursor from before these keys only proves continuity from its current position onwards.
+                    $state['read_from'] ??= CarbonImmutable::parse($state['last_time'])->utc()->format('Y-m-d\TH:i:s.vP');
                 } else {
                     $state ??= ['completed_until' => $start->toIso8601String(), 'initial_since' => $start->toIso8601String()];
                     if (! isset($state['window_end'])) {
@@ -113,6 +116,8 @@ class SyncIngestionCommand extends Command
                     if (! $raw) {
                         if (! $orion) {
                             $state = ['completed_until' => $state['window_end'], 'initial_since' => $state['initial_since']];
+                        } else {
+                            $state['read_until'] = $end->format('Y-m-d\TH:i:s.vP'); // Every event up to $end has been read.
                         }
                         $save($state); // Preserve explicit initial boundary, including an empty first page.
                         $this->info('Flujo al día para la ventana consultada.');
@@ -156,7 +161,8 @@ class SyncIngestionCommand extends Command
                             $priorId = $e['external_id'];
                         }
                         $r = app(SqlServerOrionAvailabilityRepository::class)->persist((int) $source->IdFuente, $events, $uuid, $batch['collected_at']);
-                        $state = ['last_time' => $priorTime->format('Y-m-d\TH:i:s.vP'), 'last_id' => $priorId];
+                        $state = ['last_time' => $priorTime->format('Y-m-d\TH:i:s.vP'), 'last_id' => $priorId]
+                            + array_intersect_key($state, ['read_from' => true, 'read_until' => true]);
                     } else {
                         $r = app(SqlServerPaloAltoRepository::class)->persist((int) $source->IdFuente, $events, $uuid, $batch['collected_at']);
                         $state['offset'] += count($raw);
@@ -166,8 +172,10 @@ class SyncIngestionCommand extends Command
                     if (count($raw) < $size) {
                         if (! $orion) {
                             $state = ['completed_until' => $state['window_end'], 'initial_since' => $state['initial_since']];
-                            $save($state);
+                        } else {
+                            $state['read_until'] = $end->format('Y-m-d\TH:i:s.vP'); // A short page ends the read up to $end.
                         }
+                        $save($state);
                         $this->info('Flujo al día para la ventana consultada.');
 
                         return;

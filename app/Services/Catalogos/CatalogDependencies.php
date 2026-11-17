@@ -11,9 +11,7 @@ final class CatalogDependencies
         $dependencies=match($catalog) {
             'severidad'=>[['catdMapeoSeveridad','IdSeveridad']],
             'acciones'=>[['catdMapeoAccion','IdAccion']],
-            'tipos-activo'=>[['catdActivos','IdTipoActivo']],
-            'criticidad'=>[['catdRedesInstitucionales','IdCriticidad']],
-            'zonas-red'=>[['catdActivos','IdZonaRed'],['catdRedesInstitucionales','IdZonaRed']],
+            'zonas-red'=>[['catdActivos','IdZonaRed']],
             default=>[],
         };
         if ($catalog==='severidad' && $db->table('dbo.catcSeveridad')->where('IdSeveridad',$id)->whereIn('Codigo',['DESCONOCIDA','NO_APLICA'])->lockForUpdate()->exists()) abort(409,'La severidad técnica es necesaria para la ingesta.');

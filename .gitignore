@@ -16,3 +16,6 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+/scripts/windows-service/bin
+__pycache__/
+*.pyc

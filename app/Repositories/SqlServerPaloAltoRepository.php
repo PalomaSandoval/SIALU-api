@@ -46,7 +46,6 @@ class SqlServerPaloAltoRepository
                 if (! $source || ! $source->Vigente || $sourceId !== \App\Services\Ingestion\SourceIdentity::id('paloalto')) {
                     throw new RuntimeException('Fuente Palo Alto inválida.');
                 }
-                $networks=$db->table('dbo.catdRedesInstitucionales')->where('Vigente',1)->sharedLock()->orderByDesc('PrefijoCIDR')->orderBy('IdRedInstitucional')->get()->map(fn($r)=>['id'=>(int)$r->IdRedInstitucional,'nombre'=>$r->Nombre,'cidr'=>$r->DireccionRed.'/'.$r->PrefijoCIDR])->all();
                 $stored = $duplicates = 0;
                 foreach ($events as $event) {
                     if ($event['timezone_requirement'] !== null && $event['timezone_requirement'] !== $source->ZonaHoraria) {
@@ -118,7 +117,6 @@ class SqlServerPaloAltoRepository
                         'AtributosExtra' => json_encode(['serial' => $event['serial'], 'source_external_id' => $event['source_external_id'],
                             'subtype' => $event['event_subtype'], 'estado_severidad' => $event['severity'] === null ? 'NO_APLICA' : 'INFORMADA', 'fingerprint' => $event['fingerprint'], 'raw_batch_uuid' => $rawId,
                             'enrichment_fingerprint' => $event['enrichment_fingerprint'],
-                            'clasificacion_ingesta' => app(\App\Services\TrafficIpClassifier::class)->classify($event['source_ip'],$event['destination_ip'],$networks),
                             'resolucion_activos' => ['origen'=>$origin === null ? 'SIN_EVIDENCIA_UNIVOCA':'RESUELTO','destino'=>$destination === null ? 'SIN_EVIDENCIA_UNIVOCA':'RESUELTO'],
                             'clasificacion_fecha' => $stamp, 'clasificacion_version' => 1], JSON_THROW_ON_ERROR),
                     ], 'IdEvento');

@@ -19,7 +19,7 @@ try {
  $context=$db->table('dbo.movdEventoPaloAlto')->where('IdEvento',$saved->IdEvento)->where('FechaEvento',$saved->FechaEvento)->first();
  $assert($context->IdSesion==='9007199254740993','Persist session without precision loss');
  $extra=json_decode($saved->AtributosExtra,true,512,JSON_THROW_ON_ERROR);
- $assert(isset($extra['clasificacion_ingesta']['sentido']),'Capture classification independently of future catalog edits');
+ $assert(!array_key_exists('clasificacion_ingesta',$extra),'Institutional network classification is retired');
  $assert($saved->IdActivoOrigen===null,'Unknown network context remains unresolved');
  $assert($extra['estado_severidad']==='NO_APLICA' && $saved->SeveridadOrigen===null,'Traffic missing severity is not applicable');
  $notApplicable=$db->table('dbo.catcSeveridad')->where('Codigo','NO_APLICA')->where('Vigente',1)->value('IdSeveridad');
@@ -46,8 +46,6 @@ try {
    $repo->persist($source,[$parser->parse(array_replace($raw,['vsys'=>'vsys2']))],$uuid,'2026-10-25T12:01:00Z');
    throw new LogicException('Accepted changed context');
  } catch(RuntimeException $e) { $assert(str_contains($e->getMessage(),'contexto'),'Reject changed context under same event identity'); }
- $query=(new App\Services\TrafficClassificationQuery)->query($db,'ingesta')->where('c.IdEvento',$saved->IdEvento)->first();
- $assert($query->Sentido===$extra['clasificacion_ingesta']['sentido'],'Query captured classification');
 }finally{$db->rollBack();}
 $assert($before===$db->table('dbo.movdEventos')->count(),'All event writes rolled back');
 echo "PASS: {$checks} persistence/replay regressions; no external API; all writes rolled back.\n";

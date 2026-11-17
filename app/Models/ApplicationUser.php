@@ -22,7 +22,6 @@ final class ApplicationUser
         private string $segundoApellido,
         private string $email,
         private ?string $extension,
-        private ?int $idCoordinacionDepartamentoJefe,
         private int $intentos,
         private bool $bloqueado,
         private bool $vigente,
@@ -40,15 +39,6 @@ final class ApplicationUser
         if ($this->uid === '' || $this->tipoUsuario === '') {
             throw new InvalidArgumentException(
                 'El uid y el tipo de usuario son obligatorios.'
-            );
-        }
-
-        if (
-            $idCoordinacionDepartamentoJefe !== null
-            && $idCoordinacionDepartamentoJefe < 1
-        ) {
-            throw new InvalidArgumentException(
-                'IdCoordinacionDepartamentoJefe debe ser positivo.'
             );
         }
 
@@ -103,11 +93,6 @@ final class ApplicationUser
     public function extension(): ?string
     {
         return $this->extension;
-    }
-
-    public function idCoordinacionDepartamentoJefe(): ?int
-    {
-        return $this->idCoordinacionDepartamentoJefe;
     }
 
     public function intentos(): int

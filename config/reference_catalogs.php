@@ -8,14 +8,11 @@ $basic = fn ($procedure, $id, $length) => ['procedure' => $procedure, 'id' => $i
 ]];
 $catalogs = [
     'areas' => $basic('dbo.sp_catcAreas', 'IdArea', 150),
-    'tipos-activo' => $basic('dbo.sp_catcTipoActivo', 'IdTipoActivo', 100),
-    'criticidad' => $basic('dbo.sp_catcCriticidad', 'IdCriticidad', 50),
     'severidad' => $basic('dbo.sp_catcSeveridad', 'IdSeveridad', 50),
     'acciones' => $basic('dbo.sp_catcAcciones', 'IdAccion', 50),
     'zonas-red' => $basic('dbo.sp_catcZonasRed', 'IdZonaRed', 100),
-    'unidades-institucionales' => $basic('dbo.sp_catcUnidadesInstitucionales', 'IdUnidadInstitucional', 150),
 ];
-foreach (['criticidad', 'severidad'] as $catalog) $catalogs[$catalog]['fields']['nivel'] = $number('Nivel', 0, 255);
+$catalogs['severidad']['fields']['nivel'] = $number('Nivel', 0, 255);
 $catalogs['acciones']['fields']['resultado'] = ['column' => 'Resultado', 'rules' => ['required', 'in:PERMITIDO,BLOQUEADO,OBSERVADO,DESCONOCIDO']];
 $catalogs['usuarios'] = ['procedure' => 'dbo.sp_catcUsuarios', 'id' => 'IdUsuario', 'unique' => ['uid'], 'fields' => [
     'uid' => ['column' => 'Uid', 'rules' => ['required','string','max:40','regex:/^[A-Za-z0-9!_]+$/']],

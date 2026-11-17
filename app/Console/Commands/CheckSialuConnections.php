@@ -23,7 +23,7 @@ class CheckSialuConnections extends Command
             $this->info('SQL Server: conexión correcta.');
             if ($this->option('catalogs')) {
                 $catalogs = app(WebCatalogService::class);
-                foreach (array_merge(['tipos-usuarios', 'permisos', 'tipos-usuarios-permisos'], array_keys(config('catalogs'))) as $catalog) {
+                foreach (['tipos-usuarios', 'permisos', 'tipos-usuarios-permisos'] as $catalog) {
                     $this->info($catalog.': '.count($catalogs->all($catalog)).' registros consultados.');
                 }
             }

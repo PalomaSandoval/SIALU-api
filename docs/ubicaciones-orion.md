@@ -1,28 +1,50 @@
-# Ubicaciones y agrupaciones de Orion
+# Áreas y ubicaciones de Orion
 
-La sección anteriormente llamada Campus representa ahora los valores de `City`
-de Orion: CAMPUS I, CAMPUS II, SITE, MAN, WAN, FORANEOS y Proxies. Son agrupaciones
-de origen; no se asume que todas representan campus físicos ni unidades institucionales.
+En esta instalación de SIALU, `Orion.Nodes.CustomProperties.City` corresponde a
+ubicaciones y agrupaciones (`catcCampus`, `catdActivos.IdCampus`) y `Department`
+corresponde al catálogo de áreas (`catcAreas`, `catdActivos.IdArea`). Los nombres
+de las tablas y columnas se conservan por compatibilidad con la API.
 
-Se conservan `catcCampus`, `catdActivos.IdCampus` y las claves `campus` de la API
-para mantener compatibilidad con los procedimientos, las referencias y los filtros.
-El front utiliza los nombres Ubicaciones y agrupaciones, Ubicación y Sin ubicación.
-No se modifican grupos, unidades, estados ni eventos al completar una ubicación.
+`NodeID` identifica el activo mediante `catdActivoIdentificadorFuente`, con
+`TipoIdentificador = NODE_ID` y la fuente Orion configurada. La ingesta de
+eventos y estados no actualiza las clasificaciones del activo.
 
-La importación puntual usa una copia privada de NodeID y City. La copia de esta
-ejecución está en el disco ingestion, bajo classification. Se consultó con el
-conector original, sin cambiar la configuración TLS del conector nuevo.
+La carga puntual consulta directamente los nodos actuales de Orion:
 
 ```powershell
-php artisan sialu:orion-locations classification/orion-city-UUID.json
+php artisan sialu:orion-locations
 ```
 
-Por defecto simula. `--persist` aplica en una transacción y guarda un archivo
-location-import-UUID.json con las ubicaciones creadas y los valores antes/después.
-Solo utiliza asociaciones NODE_ID vigentes de la fuente Orion configurada.
-Las asignaciones existentes se conservan; si difieren de Orion, se reporta el
-conflicto. Tampoco reactiva ubicaciones inactivas. Los City vacíos quedan pendientes.
-Los nombres se comparan sin distinguir mayúsculas/minúsculas ni espacios extremos.
+Por defecto simula y presenta los catálogos nuevos, asignaciones, valores
+vacíos, nodos sin asociación y conflictos. Después de revisar ese reporte:
 
-Esta es una carga puntual de clasificación, no una sincronización periódica.
-No renombrar la tabla ni añadir cascadas de baja como parte de esta operación.
+```powershell
+php artisan sialu:orion-locations --persist
+```
+
+La aplicación se hace en una transacción. Normalmente solo completa `IdArea` o
+`IdCampus` cuando están vacíos. `--repair-reversed` permite corregir únicamente
+las asignaciones hechas por la versión anterior con los campos invertidos; exige
+que el valor y la descripción del catálogo coincidan con aquella carga. Conserva
+las demás asignaciones, no reactiva entradas inactivas y comunica diferencias
+para revisión. Los valores se comparan
+sin distinguir mayúsculas/minúsculas ni espacios extremos. Se requiere una
+conexión funcional con SQL Server y Orion.
+
+La antigua copia `orion-city-UUID.json` no incluye `Department` y no sirve para
+reconstruir ambas relaciones. El comando ahora usa el estado actual de Orion.
+
+Si se ejecutó `--persist` con la versión invertida, simular primero con:
+
+```powershell
+php artisan sialu:orion-locations --repair-reversed
+```
+
+Después de revisar `reparaciones` y `conflictos`, aplicar con ambos indicadores.
+Los catálogos antiguos que queden sin equipos deben revisarse antes de retirarlos.
+
+Para retirar únicamente las entradas huérfanas creadas por la versión invertida,
+simular `php artisan sialu:orion-cleanup-reversed`. El reporte separa las filas
+eliminables de las que aún tienen referencias de equipos, usuarios o redes.
+Después de revisarlo, `php artisan sialu:orion-cleanup-reversed --persist` elimina
+solo las entradas con la descripción exacta de aquella carga y sin referencias.

@@ -10,7 +10,7 @@ AS
 RETURN
 (
     SELECT TOP (1)
-           r.IdRedInstitucional, r.Nombre, r.Tipo, r.Zona, r.Campus, r.IdUnidadInstitucional, r.IdCriticidad
+           r.IdRedInstitucional, r.Nombre, r.Tipo, r.Zona, r.Campus
     FROM dbo.catdRedesInstitucionales AS r
     WHERE r.Vigente = 1
       AND @IPBin BETWEEN r.RangoInicio AND r.RangoFin

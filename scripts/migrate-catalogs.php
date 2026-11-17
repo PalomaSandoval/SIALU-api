@@ -32,8 +32,9 @@ try {
         $db->unprepared('SET XACT_ABORT ON; SET ANSI_NULLS ON; SET QUOTED_IDENTIFIER ON; SET ANSI_PADDING ON; SET ANSI_WARNINGS ON; SET CONCAT_NULL_YIELDS_NULL ON; SET ARITHABORT ON; SET NUMERIC_ROUNDABORT OFF;');
         $db->unprepared("IF OBJECT_ID('dbo.SialuSchemaChanges','U') IS NULL CREATE TABLE dbo.SialuSchemaChanges (Version varchar(100) PRIMARY KEY, AppliedAt datetime2(3) NOT NULL DEFAULT SYSUTCDATETIME())");
         $upgrade=function()use($db){
-            foreach(['catalog-canonical-ip-v2'=>'013_ip_canonica.sql','catalog-interfaces-v3'=>'014_interfaces.sql'] as $version=>$file) {
+            foreach(['catalog-canonical-ip-v2'=>'013_ip_canonica.sql','catalog-interfaces-v3'=>'014_interfaces.sql','catalog-retire-institutional-units-v4'=>'015_retirar_unidades_institucionales.sql'] as $version=>$file) {
                 if($db->table('dbo.SialuSchemaChanges')->where('Version',$version)->exists())continue;
+                echo 'Versión pendiente ejecutada: '.$version.' ('.$file.')'.PHP_EOL;
                 foreach(preg_split('/^\s*GO\s*$/mi',file_get_contents(__DIR__.'/../database/migrations/'.$file)) as $batch)if(trim($batch)!=='')$db->unprepared($batch);
                 $db->table('dbo.SialuSchemaChanges')->insert(['Version'=>$version]);
             }

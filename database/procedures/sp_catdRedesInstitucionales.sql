@@ -16,8 +16,6 @@ CREATE OR ALTER PROCEDURE [dbo].[sp_catdRedesInstitucionales]
     @Zona nvarchar(100) = NULL,
     @VLAN smallint = NULL,
     @Campus nvarchar(100) = NULL,
-    @IdUnidadInstitucional int = NULL,
-    @IdCriticidad smallint = NULL,
     @Descripcion nvarchar(300) = NULL,
     @Vigente bit = NULL
 AS
@@ -59,8 +57,8 @@ BEGIN
     -- 1. Alta
     IF @Accion = 1
     BEGIN
-        INSERT INTO [dbo].[catdRedesInstitucionales] ([Nombre], [DireccionRed], [PrefijoCIDR], [VersionIP], [RangoInicio], [RangoFin], [Tipo], [Zona], [VLAN], [Campus], [IdUnidadInstitucional], [IdCriticidad], [Descripcion], [Vigente])
-        VALUES (@Nombre, @DireccionRed, @PrefijoCIDR, @VersionIP, @RangoInicio, @RangoFin, @Tipo, @Zona, @VLAN, @Campus, @IdUnidadInstitucional, @IdCriticidad, @Descripcion, COALESCE(@Vigente, 1));
+        INSERT INTO [dbo].[catdRedesInstitucionales] ([Nombre], [DireccionRed], [PrefijoCIDR], [VersionIP], [RangoInicio], [RangoFin], [Tipo], [Zona], [VLAN], [Campus], [Descripcion], [Vigente])
+        VALUES (@Nombre, @DireccionRed, @PrefijoCIDR, @VersionIP, @RangoInicio, @RangoFin, @Tipo, @Zona, @VLAN, @Campus, @Descripcion, COALESCE(@Vigente, 1));
 
         SELECT CAST(SCOPE_IDENTITY() AS int) AS [IdRedInstitucional];
         RETURN;
@@ -90,8 +88,6 @@ BEGIN
             [Zona] = @Zona,
             [VLAN] = @VLAN,
             [Campus] = @Campus,
-            [IdUnidadInstitucional] = @IdUnidadInstitucional,
-            [IdCriticidad] = @IdCriticidad,
             [Descripcion] = @Descripcion
         WHERE [IdRedInstitucional] = @IdRedInstitucional;
         SELECT @@ROWCOUNT AS FilasAfectadas;
@@ -101,7 +97,7 @@ BEGIN
     -- 4. Consulta general; @Vigente NULL incluye ambos estados
     IF @Accion = 4
     BEGIN
-        SELECT [IdRedInstitucional], [Nombre], [DireccionRed], [PrefijoCIDR], [VersionIP], [RangoInicio], [RangoFin], [Tipo], [Zona], [VLAN], [Campus], [IdUnidadInstitucional], [IdCriticidad], [Descripcion], [Vigente]
+        SELECT [IdRedInstitucional], [Nombre], [DireccionRed], [PrefijoCIDR], [VersionIP], [RangoInicio], [RangoFin], [Tipo], [Zona], [VLAN], [Campus], [Descripcion], [Vigente]
         FROM [dbo].[catdRedesInstitucionales]
         WHERE @Vigente IS NULL OR [Vigente] = @Vigente
         ORDER BY [IdRedInstitucional];
@@ -111,7 +107,7 @@ BEGIN
     -- 5. Consulta por identificador principal, incluso si esta inactivo
     IF @Accion = 5
     BEGIN
-        SELECT [IdRedInstitucional], [Nombre], [DireccionRed], [PrefijoCIDR], [VersionIP], [RangoInicio], [RangoFin], [Tipo], [Zona], [VLAN], [Campus], [IdUnidadInstitucional], [IdCriticidad], [Descripcion], [Vigente]
+        SELECT [IdRedInstitucional], [Nombre], [DireccionRed], [PrefijoCIDR], [VersionIP], [RangoInicio], [RangoFin], [Tipo], [Zona], [VLAN], [Campus], [Descripcion], [Vigente]
         FROM [dbo].[catdRedesInstitucionales]
         WHERE [IdRedInstitucional] = @IdRedInstitucional;
         RETURN;

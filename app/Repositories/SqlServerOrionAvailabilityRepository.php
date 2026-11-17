@@ -68,27 +68,8 @@ class SqlServerOrionAvailabilityRepository
                     ?: (strlen($a['external_id']) <=> strlen($b['external_id']) ?: strcmp($a['external_id'], $b['external_id'])));
                 $stored = $duplicates = 0;
                 foreach ($events as $event) {
+                    // Orion.Events DOWN/UP carry no severity; the real one belongs to the triggered alert (movdAlertasOrion).
                     $severityId = $severity[0]->IdSeveridad;
-                    $severityAudit = null;
-                    $v2 = (bool) config('sialu.orion.severity_v2_enabled', false);
-                    if ($v2) {
-                        if (($event['severity'] ?? null) !== null) {
-                            $mapped = $db->table('dbo.catdMapeoSeveridad as m')->sharedLock()
-                                ->join(DB::raw('dbo.catcSeveridad as s WITH (HOLDLOCK)'), 's.IdSeveridad', '=', 'm.IdSeveridad')
-                                ->where('m.IdFuente', $sourceId)->where('m.Vigente', 1)->where('s.Vigente', 1)
-                                ->where('m.ValorOrigen', trim($event['severity']))->select('s.IdSeveridad')->get();
-                            if ($mapped->count() !== 1) throw new RuntimeException('Severidad real Orion sin mapeo unico; no se sustituye por una regla.');
-                            $severityId = $mapped[0]->IdSeveridad;
-                            $severityAudit = ['origen' => 'FUENTE', 'regla' => 'mapeo-severidad-fuente', 'version' => 1];
-                        } else {
-                            $severityAudit = (new \App\Integrations\Orion\OrionSeverityClassifier)->classify($event['event_type'], $event['message'] ?? null);
-                            $resolved = $db->table('dbo.catcSeveridad')->where('Nombre', $severityAudit['nombre'])->where('Vigente', 1)->sharedLock()->get();
-                            if ($resolved->count() !== 1) throw new RuntimeException('Severidad institucional Orion no disponible.');
-                            $severityId = $resolved[0]->IdSeveridad;
-                            unset($severityAudit['nombre']);
-                        }
-                        $severityAudit += ['tipo_evento_origen' => $event['event_type'], 'id_severidad_asignada' => $severityId];
-                    }
                     $date = $event['occurred_at']->format('Y-m-d H:i:s.v');
                     $assets = $db->table('dbo.catdActivoIdentificadorFuente as i')->join(DB::raw('dbo.catdActivos as a WITH (HOLDLOCK)'), 'a.IdActivo', '=', 'i.IdActivo')
                         ->where('i.IdFuente', $sourceId)->where('i.TipoIdentificador', 'NODE_ID')->where('i.ValorIdentificador', $event['node_id'])
@@ -137,12 +118,10 @@ class SqlServerOrionAvailabilityRepository
                         'IdFuente' => $sourceId, 'IdOrigenExterno' => $event['external_id'],
                         'FechaEvento' => $date, 'FechaRecepcion' => CarbonImmutable::parse($collectedAt)->utc()->format('Y-m-d H:i:s.v'), 'FechaProcesamiento' => $stamp,
                         'IdTipoEvento' => $maps[$event['event_type']], 'IdSeveridad' => $severityId,
-                        'SeveridadOrigen' => $v2 ? ($event['severity'] ?? null) : null,
-                        'Descripcion' => $v2 && isset($event['message']) ? mb_substr($event['message'], 0, 1000, 'UTF-8') : null,
+                        'SeveridadOrigen' => null,
                         'TipoEventoOrigen' => $event['event_type'], 'IdActivoOrigen' => $assetId,
                         'IdLote' => $attemptId, 'IdStgEvento' => $stagingId,
-                        'AtributosExtra' => json_encode(array_merge(['node_id' => $event['node_id'], 'raw_batch_uuid' => $rawBatchId],
-                            $severityAudit === null ? [] : ['severidad_clasificacion' => $severityAudit]), JSON_THROW_ON_ERROR),
+                        'AtributosExtra' => json_encode(['node_id' => $event['node_id'], 'raw_batch_uuid' => $rawBatchId], JSON_THROW_ON_ERROR),
                     ], 'IdEvento');
                     $open = $db->table('dbo.movdDisponibilidad')->where('IdFuente', $sourceId)->where('IdActivo', $assetId)
                         ->where('TipoObjeto', 'NODO')->where('ObjetoExterno', $event['node_id'])->whereNull('FechaUp')->get();

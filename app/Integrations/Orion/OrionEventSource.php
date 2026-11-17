@@ -25,6 +25,12 @@ class OrionEventSource
         ');
     }
 
+    /** Orion's own meaning of each Orion.Nodes.Status value in this installation. */
+    public function obtenerCatalogoEstados(): array
+    {
+        return $this->client->query('SELECT s.StatusId, s.StatusName FROM Orion.StatusInfo s ORDER BY s.StatusId');
+    }
+
     public function obtenerNodosDown(): array
     {
         return $this->client->query('
@@ -45,9 +51,8 @@ class OrionEventSource
     {
         $limit = max(1, min(5000, $limit));
         $date = $since->utc()->format('Y-m-d\TH:i:s');
-        $messageField = config('sialu.orion.severity_v2_enabled', false) ? ', Message' : '';
 
-        return $this->client->query("SELECT TOP {$limit} EventID, EventTime, EventType, NetworkNode, NetObjectType{$messageField}
+        return $this->client->query("SELECT TOP {$limit} EventID, EventTime, EventType, NetworkNode, NetObjectType
             FROM Orion.Events
             WHERE EventType IN (1, 5) AND NetObjectType = 'N' AND EventTime >= '{$date}'
             ORDER BY EventTime ASC, EventID ASC");
@@ -60,9 +65,8 @@ class OrionEventSource
         }
         $date = $since->utc()->format('Y-m-d\TH:i:s.v');
         $end = $until->utc()->format('Y-m-d\TH:i:s.v');
-        $messageField = config('sialu.orion.severity_v2_enabled', false) ? ', Message' : '';
 
-        return $this->client->query("SELECT TOP {$limit} EventID, EventTime, EventType, NetworkNode, NetObjectType{$messageField}
+        return $this->client->query("SELECT TOP {$limit} EventID, EventTime, EventType, NetworkNode, NetObjectType
             FROM Orion.Events WHERE EventType IN (1, 5) AND NetObjectType = 'N'
             AND (EventTime > '{$date}' OR (EventTime = '{$date}' AND EventID > {$afterId}))
             AND EventTime <= '{$end}' ORDER BY EventTime ASC, EventID ASC");

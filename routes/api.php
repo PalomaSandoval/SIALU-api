@@ -1,7 +1,6 @@
 <?php
 
 use App\Http\Controllers\AuthController;
-use App\Http\Controllers\Catalogos\InstitutionalCatalogController;
 use App\Http\Controllers\Catalogos\PermisoController;
 use App\Http\Controllers\Catalogos\TipoUsuarioController;
 use App\Http\Controllers\Catalogos\TipoUsuarioPermisoController;
@@ -26,7 +25,22 @@ Route::prefix('v1')->group(function (): void {
             Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
             Route::get('/me', [AuthController::class, 'me'])->name('me');
             Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+            Route::get('/monitoreo/dispositivos/estado', [\App\Http\Controllers\DeviceStatusController::class, 'show'])->name('monitoreo.dispositivos.estado');
+            Route::get('/monitoreo/dispositivos/actividad', [\App\Http\Controllers\DeviceActivityController::class, 'show'])->name('monitoreo.dispositivos.actividad');
+            Route::get('/monitoreo/dispositivos/actividad/historial', [\App\Http\Controllers\DeviceActivityController::class, 'history'])->name('monitoreo.dispositivos.actividad.historial');
+            Route::get('/monitoreo/orion/incidentes/caidas', [\App\Http\Controllers\OrionIncidentsController::class, 'open'])->name('monitoreo.orion.incidentes.caidas');
+            Route::get('/monitoreo/orion/incidentes/intermitencias', [\App\Http\Controllers\OrionIncidentsController::class, 'intermittent'])->name('monitoreo.orion.incidentes.intermitencias');
+            Route::get('/monitoreo/disponibilidad/areas', [\App\Http\Controllers\AreaAvailabilityController::class, 'show'])->name('monitoreo.disponibilidad.areas');
+            Route::get('/monitoreo/disponibilidad/nodos/orion', [\App\Http\Controllers\OrionNodesController::class, 'index'])->name('monitoreo.disponibilidad.nodos.orion');
+            Route::get('/monitoreo/disponibilidad/nodos/{nodeId}/orion',[\App\Http\Controllers\NodeAvailabilityStatsController::class, 'show'])->name('monitoreo.disponibilidad.nodo.orion');
+            Route::get('/monitoreo/amenazas/severidad', [\App\Http\Controllers\ThreatSeverityController::class, 'show'])->name('monitoreo.amenazas.severidad');
+            Route::get('/monitoreo/amenazas/detalle', [\App\Http\Controllers\ThreatSeverityController::class, 'threats'])->name('monitoreo.amenazas.detalle');
+            Route::get('/monitoreo/amenazas/ficha', [\App\Http\Controllers\ThreatSeverityController::class, 'profile'])->name('monitoreo.amenazas.ficha');
+            Route::get('/fuentes-navegacion', [\App\Http\Controllers\Catalogos\FuenteController::class, 'navigation'])->name('fuentes.navigation');
+            Route::get('/catalogos/fuentes/{id}/icono', [\App\Http\Controllers\Catalogos\FuenteController::class, 'showIcon'])->whereNumber('id')->name('catalogos.fuentes.icono.show');
             Route::get('/integraciones/{adapter}/estado', [\App\Http\Controllers\IntegrationStatusController::class, 'show'])->middleware('sialu.role:ADMINISTRADOR');
+            Route::get('/integraciones/{adapter}/cobertura', [\App\Http\Controllers\IngestionCoverageController::class, 'show'])->whereIn('adapter', ['orion', 'paloalto'])->middleware('sialu.role:ADMINISTRADOR');
+            Route::get('/integraciones/orion/alertas', [\App\Http\Controllers\OrionAlertsController::class, 'index'])->middleware('sialu.role:ADMINISTRADOR');
             Route::get('/consultas/eventos', [\App\Http\Controllers\EventQueriesController::class, 'index'])->middleware('sialu.role:ADMINISTRADOR');
             Route::get('/usuarios-ldap/consultar', [UsuarioLdapController::class, 'consultar'])
                 ->middleware('sialu.permission:USUARIO_LDAP_CONSULTAR')->name('usuarios-ldap.consultar');
@@ -42,25 +56,18 @@ Route::prefix('v1')->group(function (): void {
                 Route::put('/zonas-firewall',[\App\Http\Controllers\Catalogos\NetworkZonesController::class,'update']);
                 Route::get('/ubicaciones', [\App\Http\Controllers\Catalogos\LocationsController::class, 'index'])->name('ubicaciones.index');
                 Route::get('/ubicaciones/activos', [\App\Http\Controllers\Catalogos\LocationsController::class, 'assets'])->name('ubicaciones.assets');
-                Route::get('/tipos-activo/{id}/activos', [\App\Http\Controllers\Catalogos\LocationsController::class, 'assetsByType'])->whereNumber('id')->name('tipos-activo.assets');
                 Route::get('/equivalencias-acciones', [\App\Http\Controllers\Catalogos\TrafficActionsController::class, 'index']);
-                $networks = \App\Http\Controllers\Catalogos\InstitutionalNetworksController::class;
-                Route::get('/redes-institucionales', [$networks, 'index']);
-                Route::post('/redes-institucionales', [$networks, 'store']);
-                Route::put('/redes-institucionales/{id}', [$networks, 'update'])->whereNumber('id');
-                Route::post('/redes-institucionales/{id}/activar', [$networks, 'activate'])->whereNumber('id');
-                Route::post('/redes-institucionales/{id}/desactivar', [$networks, 'deactivate'])->whereNumber('id');
-                Route::get('/clasificacion-trafico', [\App\Http\Controllers\Catalogos\TrafficClassificationController::class, 'index']);
-                Route::post('/clasificacion-trafico/redes', [\App\Http\Controllers\Catalogos\TrafficClassificationController::class, 'storeNetwork']);
                 Route::put('/equivalencias-acciones/{id}', [\App\Http\Controllers\Catalogos\TrafficActionsController::class, 'update'])->whereNumber('id');
                 foreach (array_keys(config('reference_catalogs')) as $reference) {
                     $controller = \App\Http\Controllers\Catalogos\ReferenceCatalogController::class;
                     Route::get('/'.$reference, [$controller, 'index'])->defaults('reference', $reference)->name($reference.'.index');
-                    Route::post('/'.$reference, [$controller, 'store'])->defaults('reference', $reference)->name($reference.'.store');
+                    if ($reference !== 'severidad') Route::post('/'.$reference, [$controller, 'store'])->defaults('reference', $reference)->name($reference.'.store');
                     Route::get('/'.$reference.'/{id}', [$controller, 'show'])->whereNumber('id')->defaults('reference', $reference)->name($reference.'.show');
                     Route::put('/'.$reference.'/{id}', [$controller, 'update'])->whereNumber('id')->defaults('reference', $reference)->name($reference.'.update');
-                    Route::post('/'.$reference.'/{id}/activar', [$controller, 'activate'])->whereNumber('id')->defaults('reference', $reference)->name($reference.'.activate');
-                    Route::post('/'.$reference.'/{id}/desactivar', [$controller, 'deactivate'])->whereNumber('id')->defaults('reference', $reference)->name($reference.'.deactivate');
+                    if ($reference !== 'severidad') {
+                        Route::post('/'.$reference.'/{id}/activar', [$controller, 'activate'])->whereNumber('id')->defaults('reference', $reference)->name($reference.'.activate');
+                        Route::post('/'.$reference.'/{id}/desactivar', [$controller, 'deactivate'])->whereNumber('id')->defaults('reference', $reference)->name($reference.'.deactivate');
+                    }
                 }
                 $campus = \App\Http\Controllers\Catalogos\CampusController::class;
                 Route::get('/campus', [$campus, 'index'])->name('campus.index');
@@ -73,20 +80,13 @@ Route::prefix('v1')->group(function (): void {
                 Route::get('/fuentes', [$fuentes, 'index'])->name('fuentes.index');
                 Route::post('/fuentes', [$fuentes, 'store'])->name('fuentes.store');
                 Route::get('/fuentes/{id}', [$fuentes, 'show'])->whereNumber('id')->name('fuentes.show');
+                Route::get('/fuentes/{id}/dependencias', [$fuentes, 'dependencies'])->whereNumber('id')->name('fuentes.dependencies');
                 Route::put('/fuentes/{id}', [$fuentes, 'update'])->whereNumber('id')->name('fuentes.update');
+                Route::post('/fuentes/{id}/icono', [$fuentes, 'uploadIcon'])->whereNumber('id')->name('fuentes.icono.upload');
                 Route::post('/fuentes/{id}/activar', [$fuentes, 'activate'])->whereNumber('id')->name('fuentes.activate');
                 Route::post('/fuentes/{id}/desactivar', [$fuentes, 'deactivate'])->whereNumber('id')->name('fuentes.deactivate');
                 Route::get('/tipos-usuarios/vigentes', [TipoUsuarioController::class, 'active'])->name('tipos-usuarios.vigentes');
                 Route::get('/permisos/vigentes', [PermisoController::class, 'active'])->name('permisos.vigentes');
-                foreach (array_keys(config('catalogs')) as $catalog) {
-                    $controller = InstitutionalCatalogController::class;
-                    Route::get('/'.$catalog, [$controller, 'index'])->defaults('catalog', $catalog)->name($catalog.'.index');
-                    Route::post('/'.$catalog, [$controller, 'store'])->defaults('catalog', $catalog)->name($catalog.'.store');
-                    Route::get('/'.$catalog.'/{id}', [$controller, 'show'])->whereNumber('id')->defaults('catalog', $catalog)->name($catalog.'.show');
-                    Route::put('/'.$catalog.'/{id}', [$controller, 'update'])->whereNumber('id')->defaults('catalog', $catalog)->name($catalog.'.update');
-                    Route::post('/'.$catalog.'/{id}/activar', [$controller, 'activate'])->whereNumber('id')->defaults('catalog', $catalog)->name($catalog.'.activate');
-                    Route::post('/'.$catalog.'/{id}/desactivar', [$controller, 'deactivate'])->whereNumber('id')->defaults('catalog', $catalog)->name($catalog.'.deactivate');
-                }
                 foreach ([
                     'tipos-usuarios' => TipoUsuarioController::class,
                     'permisos' => PermisoController::class,

@@ -49,14 +49,23 @@ class ReferenceCatalogController extends Controller
     public function update(Request $request, int $id, string $reference) { return $this->save($request, $reference, $id); }
     private function save(Request $request, string $reference, ?int $id = null)
     {
+        if ($reference === 'severidad' && $id === null) abort(405, 'No se pueden agregar niveles de severidad.');
+        if ($reference === 'severidad' && $request->exists('nivel')) {
+            throw ValidationException::withMessages(['nivel' => 'El número de nivel es fijo.']);
+        }
         $definition = $this->definition($reference);
         $rules = array_map(fn ($spec) => $spec['rules'], $definition['fields']);
+        if ($reference === 'severidad') unset($rules['nivel']);
         if (($definition['manual_id'] ?? false) && $id === null) $rules['id'] = ['required','integer','min:0','max:255'];
         $data = $request->validate($rules);
         $result = DB::connection('sqlsrv')->transaction(function () use ($data, $reference, $id, $definition) {
             $current = $id === null ? null : $this->raw($reference, $id);
             $parameters = [];
             foreach ($definition['fields'] as $field => $spec) {
+                if ($reference === 'severidad' && $field === 'nivel') {
+                    $parameters['Nivel'] = (int) $current['Nivel'];
+                    continue;
+                }
                 $value = $data[$field] ?? null;
                 $parameters[$spec['column']] = ($spec['numeric'] ?? false) ? ($value === null || $value === '' ? null : (int) $value) : (is_string($value) ? trim($value) : $value);
                 if (in_array('required', $spec['rules'], true) && is_string($value) && trim($value) === '') {
@@ -114,6 +123,7 @@ class ReferenceCatalogController extends Controller
     public function deactivate(int $id, string $reference) { return $this->state($reference, $id, false); }
     private function state(string $reference, int $id, bool $active)
     {
+        if ($reference === 'severidad') abort(405, 'Los niveles de severidad no se pueden activar ni desactivar.');
         $result = DB::connection('sqlsrv')->transaction(function () use ($reference, $id, $active) {
             $this->raw($reference, $id);
             if (!$active) app(\App\Services\Catalogos\CatalogDependencies::class)->assertCanDeactivate($reference, $id);

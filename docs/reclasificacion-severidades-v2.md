@@ -1,127 +1,110 @@
-# Reclasificación de severidades — revisión del 28 de octubre de 2026
+# Severidades Orion: retiro de la reclasificación v2
 
-Estado: preparación y pruebas terminadas; pendiente autorización para aplicar. No se borraron ni reimportaron eventos, no se hizo respaldo global, no se repitió la precarga, no se confirmó ninguna reclasificación. Conexión verificada con cifrado TRUE mediante `sqlcmd -E -Nm -C -f 65001`. `-C` conserva el cifrado pero confía en el certificado del servidor, igual que la configuración local existente.
+**Estado: APLICADO el 2026-11-03 a las 18:48:52 UTC** (`fecha_utc` de la marca de retiro: `2026-11-03T18:48:52.4545683`).
+Salida de la aplicación: `storage/app/audit-backups/retiro-severidad-orion-20261103-184847.log`. No hay que volver a
+aplicarlo: una segunda ejecución aborta con el error 52006 (comprobado después del COMMIT).
 
-## 1. Ubicación del mensaje
+SIALU deja de asignar a los eventos de Orion una severidad que Orion no proporcionó. Orion.Events (DOWN/UP y
+los tipos históricos 14, 100, 5000 y 5001) no trae severidad: `SeveridadOrigen` es NULL. La única severidad
+real de Orion es la de la alerta disparada (ver [integraciones.md](integraciones.md), «Alertas reales de Orion»).
 
-Los 1801 históricos Orion tienen texto en `dbo.movdEventos.Descripcion`. Todos tienen `SeveridadOrigen=NULL` y `IdStgEvento=NULL`. No se verificó el importador original que pobló ese histórico.
+## 1. Estado final
 
-El conector actual omite `Message` en ambas consultas SWQL de `OrionEventSource`: allí deja de solicitarse. El parser conserva el objeto recibido en `raw_payload`; el repositorio guarda ese objeto en `movdstgEventos.Payload`, pero antes del ajuste no guardaba descripción. Con v2 habilitada se solicita Message, se guarda la descripción (hasta 1000 caracteres) y se conserva el texto completo en Payload.
+| Qué | Severidad | Motivo |
+|---|---|---|
+| Orion, 1801 eventos históricos (lote `reclasificacion-20261028-v2`) | Desconocida | `SeveridadOrigen` NULL; la severidad inferida se retira |
+| Orion, eventos DOWN/UP nuevos | Desconocida | Desde el 2026-10-30 el conector no deduce severidad |
+| Orion, alertas disparadas (`movdAlertasOrion`) | Equivalencia de `AlertConfigurations.Severity` | Severidad de la fuente; no cambia |
+| Palo Alto THREAT (1 Alta, 4 Crítica) | Equivalencia de la fuente | Severidad de la fuente; no cambia |
+| Palo Alto TRAFFIC (20) | No Aplica | Fuera del alcance de este retiro; no cambia |
 
-## 2. Todos los patrones históricos 5000/5001
+Los 1801 eventos conservan fechas, tipos, descripción, `SeveridadOrigen`, relaciones con `movdDisponibilidad`
+y el resto de columnas. Solo cambian `IdSeveridad` y una marca nueva en `AtributosExtra`.
 
-Se agruparon todos los textos distintos; se sustituyeron únicamente los nombres de nodo y las fechas. No hubo textos de sensores/interfaces, Warning, Critical ni desconocidos entre estos 886 registros; el ruido descrito en la fuente no está en este conjunto histórico.
+Conteos del 2026-11-03 (antes → después; el «después» se verificó en la base después del COMMIT):
 
-| Tipo | Patrón | Conteo | Ejemplo real |
-|---|---|---:|---|
-| 5000 | `Node <nodo> is Down.` | 388 | `Node AP_FacOdon_cafe is Down.` |
-| 5000 | `Node <nodo> is Up.` | 4 | `Node Proxy_RFA_Campus1 is Up.` |
-| 5000 | `Node <nodo> has rebooted at <fecha>.` | 98 | `Node PfSense_Camargo.uach.mx has rebooted at jueves, 10 de septiembre de 2026 10:51 p. m..` |
-| 5001 | `Node <nodo> is Up.` | 396 | `Node AP_FacOdon_cafe is Up.` |
+| Fuente | Tipo | Antes | Después |
+|---|---|---|---|
+| 1 Orion | 1 | Alta 407 | Desconocida 407 |
+| 1 Orion | 5 | Informativa 409 | Desconocida 409 |
+| 1 Orion | 14 | Media 98 | Desconocida 98 |
+| 1 Orion | 100 | Desconocida 1 | Desconocida 1 |
+| 1 Orion | 5000 | Alta 388, Informativa 4, Media 98 | Desconocida 490 |
+| 1 Orion | 5001 | Informativa 396 | Desconocida 396 |
+| 8 Palo Alto | THREAT | Alta 1, Crítica 4 | sin cambio |
+| 8 Palo Alto | TRAFFIC | No Aplica 20 | sin cambio |
 
-## 3. Tipos 1 y 14
+## 2. Constancia auditable
 
-407/407 eventos tipo 1 tienen mensaje y describen pérdida de respuesta, compatibles con Alta:
+- Cada evento conserva intacto `AtributosExtra.severidad_clasificacion` (la regla v2 que se aplicó el
+  2026-10-28) y recibe `severidad_clasificacion.retiro`:
+  `{"lote":"retiro-severidad-inferida-orion-20261103","motivo":"SeveridadOrigen NULL: se retira la severidad inferida por SIALU","id_severidad_previa":4,"id_severidad_final":6,"fecha_utc":"…"}`.
+  Si se quita `retiro`, el JSON queda idéntico al original (el script lo comprueba).
+- `database/retiro_severidad_orion_manifiesto.sql` es la foto previa, fila por fila: IdEvento, FechaEvento,
+  tipo, severidad previa y SHA-256 de `AtributosExtra` de los 1801 eventos.
+- La salida de `sqlcmd` de la aplicación se guarda en `storage/app/audit-backups/` (ver §4).
 
-| Patrón | Conteo | Ejemplo |
-|---|---:|---|
-| `<nodo> has stopped responding (Request Timed Out)` | 291 | `AP_FacOdon_cafe has stopped responding (Request Timed Out)` |
-| `<nodo> has stopped responding (TTL expired during transit)` | 111 | `AP_FacOdon_cafe has stopped responding (TTL expired during transit)` |
-| `<nodo> has stopped responding (Timeout)` | 3 | `Sw_Fing.uach.mx has stopped responding (Timeout)` |
-| `<nodo> has stopped responding (Host Unreachable)` | 2 | `fichas.uach.mx has stopped responding (Host Unreachable)` |
+## 3. Scripts
 
-98/98 eventos tipo 14 tienen `<nodo> rebooted at <fecha>`, compatible con Media. Ejemplo: `PfSense_Camargo.uach.mx rebooted at 09/09/2026 02:49:00 p. m.`. No se usa AlertConfigurations ni se hace unión aproximada con AlertHistory.
-
-## 4–6. Reclasificación validada con ROLLBACK
-
-`database/reclasificar_severidad_orion.sql` aplica reglas por tipo para 1/5/14/100 y por mensaje para 5000/5001. Si falta mensaje, 5000 usa Desconocida y 5001 Informativa. Si existe mensaje no reconocido, ambos usan Desconocida. Mensajes con coincidencias de severidades contradictorias también usan Desconocida.
-
-La comparación no distingue mayúsculas ni acentos. Frases españolas explícitas: `está caído/caída`, `no responde`, `está activo/activa/disponible`, `está en advertencia`, `está crítico/crítica/en estado crítico`, `se ha reiniciado`, `se reinició`. Otras formulaciones quedan en Desconocida. No es un clasificador general de lenguaje natural.
-
-Cada evento registra en `AtributosExtra.severidad_clasificacion`: origen, regla, versión, lote `reclasificacion-20261028-v2`, tipo original, identificadores de severidad anterior/asignada y fecha UTC. No se actualiza SeveridadOrigen y se verifica su igualdad binaria, incluyendo NULL. Los demás atributos JSON se conservan.
-
-| Fuente | Tipo | Destino | Eventos |
-|---|---|---|---:|
-| 1 | 1 | Alta | 407 |
-| 1 | 5 | Informativa | 409 |
-| 1 | 14 | Media | 98 |
-| 1 | 100 | Desconocida | 1 |
-| 1 | 5000 | Alta | 388 |
-| 1 | 5000 | Informativa | 4 |
-| 1 | 5000 | Media | 98 |
-| 1 | 5001 | Informativa | 396 |
-| 8 | TRAFFIC | No Aplica | 20 |
-| 8 | THREAT | Alta (sin cambio) | 1 |
-| 8 | THREAT | Crítica (sin cambio) | 4 |
-
-Los cinco mapas de fuente 8 ya existen, vigentes y correctos: informational→Informativa, low→Baja, medium→Media, high→Alta, critical→Crítica. No se ejecutó la precarga. Hay exactamente siete filas de severidad, con códigos DESCONOCIDA y NO_APLICA en los dos niveles técnicos.
-
-| Fuente | Informativa | Baja | Media | Alta | Crítica | Desconocida | No Aplica |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| 1, esperada | 809 | 0 | 196 | 795 | 0 | 1 | 0 |
-| 8, esperada | 0 | 0 | 0 | 1 | 4 | 0 | 20 |
-| 1, actual tras ROLLBACK | 1801 | 0 | 0 | 0 | 0 | 0 | 0 |
-| 8, actual tras ROLLBACK | 20 | 0 | 0 | 1 | 4 | 0 | 0 |
-
-El coordinador aborta si no encuentra exactamente 1801 candidatos Orion con la distribución revisada, o 20 TRAFFIC sin severidad real. Usa bloqueos de aplicación iguales a los de ingesta y bloqueos de filas/rangos. Se probó que 1800 candidatos provocan error 51704 y ROLLBACK. Cambios futuros del histórico requieren nueva revisión; no se debe cambiar el número esperado para forzar la ejecución.
-
-## 7. Reversa
-
-`database/revertir_reclasificacion_severidad.sql` selecciona por lote, fuente, tipo, regla y versión. Exige 1821 eventos, conteos por tipo, severidad actual igual a la asignada y severidad anterior válida. Restaura el identificador anterior registrado, no infiere que una severidad nueva tenga una inversa única. Conserva la auditoría y añade `revertida=true` y fecha UTC. No toca eventos nuevos del conector, que no tienen este lote.
-
-`database/validar_reversa_severidades.sql` pasó aplicación + reversa + comparación contra el estado previo dentro de una sola transacción con ROLLBACK total. Para revertir después de una aplicación real, usar `database/aplicar_reversa_severidades.sql` con los mismos parámetros Aplicar/IngestasDetenidas; primero Aplicar=0, después autorización y Aplicar=1. Una reversa repetida o una clasificación modificada posteriormente abortan.
-
-## 8. Conector preparado, no activado
-
-La bandera nueva `ORION_SEVERITY_V2_ENABLED` tiene valor predeterminado false. No se modificó `.env` ni se ejecutó una ingesta real. Al activarla, los tipos 1/5 usan la misma regla v2 y conservan Message. Si el objeto recibido trae severidad real, se exige un mapeo único vigente, se conserva el valor literal en SeveridadOrigen y se marca origen FUENTE. Una severidad real sin mapeo se rechaza para evitar sustituirla silenciosamente por una derivada.
-
-No se ampliaron las consultas ni el parser a 14/100/5000/5001. El repositorio sólo valida los mapas de nodo 1/5, calcula intervalos de disponibilidad y aplica controles de orden pensados para esas transiciones. Además, los mensajes 5000 pueden describir sensores, no nodos caídos. Ampliar requiere separar eventos generales de la máquina de disponibilidad, revisar mapeos, objetos y cursor/replay. El clasificador sí está probado para todos los tipos propuestos.
-
-## 9. Pruebas ejecutadas
-
-| Prueba | Resultado |
+| Script | Uso |
 |---|---|
-| orion-severity.php | 69 comprobaciones sin SQL/API |
-| orion-severity-sql.php | 38 patrones sobre expresiones SQL reales, vía sqlcmd cifrado |
-| run.php | 21 comprobaciones aisladas |
-| catalog-refactor.php | 10 regresiones; 40 registros locales analizados |
-| orion-severity-persistence.php | 24 comprobaciones, ROLLBACK |
-| paloalto-persistence.php | 18 comprobaciones, ROLLBACK |
-| levels-api.php | 18 comprobaciones, ROLLBACK |
-| validar_aplicar_severidades.sql, Aplicar=0 | 1821 eventos, origen intacto, ROLLBACK |
-| validar_reversa_severidades.sql | restauración y auditoría verificadas, ROLLBACK |
-| Conteo incorrecto simulado | 1800 candidatos rechazados, error 51704, ROLLBACK |
+| `database/retirar_severidad_inferida_orion.sql` | Núcleo. Hace ROLLBACK salvo que lo invoque el coordinador. |
+| `database/retiro_severidad_orion_manifiesto.sql` | Manifiesto que incluye el núcleo con `:r`. No editar ni ejecutar por separado. |
+| `database/aplicar_retiro_severidad_orion.sql` | Coordinador: muestra conteos antes y después; `Aplicar=0` deshace, `Aplicar=1` confirma. |
+| `database/validar_retiro_severidad_orion.sql` | Pruebas, siempre con ROLLBACK: retiro completo y cinco rechazos. |
+| `database/distribucion_severidades_por_fuente.sql` | Consulta de solo lectura. |
+| `database/reclasificar_severidad_paloalto.sql` | Obsoleto (Palo Alto TRAFFIC ya aplicado). No ejecutar; se conserva como registro. |
 
-Las pruebas de inserción pueden avanzar contadores IDENTITY aunque las filas se reviertan. No se hizo reseed. El smoke general marcado para bases de pruebas no se ejecutó en producción; se usaron las pruebas de persistencia y de catálogo de niveles con transacciones externas.
+El núcleo aborta (y no escribe nada) si ocurre cualquiera de estas condiciones:
+- el manifiesto tiene otro hash;
+- algún evento Orion con `severidad_clasificacion` no coincide con el manifiesto en clave, tipo, severidad
+  actual o `AtributosExtra`, o bien tiene `SeveridadOrigen`, o ya fue revertido o retirado;
+- el conteo no es 1801 o la distribución por tipo y severidad no es la de §1;
+- la actualización no afecta exactamente 1801 filas, o cambia alguna otra columna.
 
-## 10. Aplicación futura — NO ejecutada
+Toma el bloqueo `SIALU:ingestion:source:1`, el mismo que usa la ingesta Orion. No toma el de Palo Alto.
 
-Se necesita autorización explícita. Ejecutar desde `C:\xampp\htdocs\SIALU-api`. No asumir que la inspección actual de procesos garantiza una ventana futura: no se encontraron procesos de ingesta SIALU ni tareas programadas SIALU visibles, pero puede haber lanzadores externos.
+El retiro ya está aplicado (1801 eventos marcados). Desde la migración 017 (criticidad de activos retirada) el núcleo
+y sus pruebas ya no compilan, porque su hash incluye `IdCriticidad` y `EsActivoCritico`; se conservan solo como registro.
 
-1. Registrar qué ingestas estaban activas y sus parámetros para reanudar sólo esas mismas. Pausar lanzadores/tareas externas de Orion y Palo Alto. No se identificó un servicio continuo Orion que pueda detenerse con un comando del proyecto.
-2. Si Palo Alto estaba activo, solicitar parada con `powershell -File scripts/stop-paloalto.ps1`. Esperar su salida: ese comando solicita parada, no espera por sí solo. Esperar también que finalice cualquier `sialu:sync`/replay Orion. Verificar que no puedan iniciarse nuevos procesos durante la ventana.
-3. Con ingestas detenidas, repetir la validación:
+Se eliminaron el 2026-11-03 los scripts que podían volver a aplicar la severidad inferida o restaurar
+Informativa: `reclasificar_severidad_orion.sql`, `validar_aplicar_severidades.sql`,
+`revertir_reclasificacion_severidad.sql`, `validar_reversa_severidades.sql` y `aplicar_reversa_severidades.sql`.
+La reversa restauraba Informativa, que tampoco viene de Orion, e incluía los 20 TRAFFIC de Palo Alto.
+Siguen en el commit `4ce9b04` como registro. `tests/integrations/orion-alerts.php` verifica que no vuelvan.
+Con ellos se perdió la reversa de Palo Alto TRAFFIC; si alguna vez hiciera falta, se escribe aparte.
+También se quitó la línea huérfana `ORION_SEVERITY_V2_ENABLED` de `.env`, que el código ya no leía.
+
+## 4. Procedimiento con el que se aplicó
+
+Desde `SIALU-api`, con la ingesta Orion detenida (`sialu:sync` de Orion, `sialu:orion-alerts`, `sialu:orion-replay` y cualquier
+tarea programada que las invoque):
 
 ```powershell
-sqlcmd -S DESKTOP-36O2DIJ -d SIALU -E -Nm -C -f 65001 -b -i database/validar_aplicar_severidades.sql -v Aplicar=0 IngestasDetenidas=1
-if ($LASTEXITCODE -ne 0) { throw 'Validación fallida. Revisar el error; no aplicar.' }
+$ts = (Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss')
+# 1. Pruebas con ROLLBACK; deben terminar en PASS.
+sqlcmd -S DESKTOP-36O2DIJ -d SIALU -E -C -f 65001 -i database/validar_retiro_severidad_orion.sql
+# 2. Ensayo con ROLLBACK; revisar los conteos ANTES y DESPUES.
+sqlcmd -S DESKTOP-36O2DIJ -d SIALU -E -C -f 65001 -b -v Aplicar=0 IngestasDetenidas=0 -i database/aplicar_retiro_severidad_orion.sql
+# 3. COMMIT, guardando la salida como constancia.
+sqlcmd -S DESKTOP-36O2DIJ -d SIALU -E -C -f 65001 -b -v Aplicar=1 IngestasDetenidas=1 -i database/aplicar_retiro_severidad_orion.sql -o "storage/app/audit-backups/retiro-severidad-orion-$ts.log"
+# 4. Verificación de solo lectura: Orion debe mostrar 1801 en Desconocida; Palo Alto 1/4/20 sin cambio.
+sqlcmd -S DESKTOP-36O2DIJ -d SIALU -E -C -f 65001 -b -i database/distribucion_severidades_por_fuente.sql
 ```
 
-4. Comando final de aplicación, únicamente tras autorización:
+Una vez confirmado, una segunda ejecución aborta con el error 52006 y no modifica nada.
 
-```powershell
-sqlcmd -S DESKTOP-36O2DIJ -d SIALU -E -Nm -C -f 65001 -b -i database/validar_aplicar_severidades.sql -v Aplicar=1 IngestasDetenidas=1
-if ($LASTEXITCODE -ne 0) { throw 'Aplicación fallida. No reintentar automáticamente; conciliar antes de reanudar.' }
-sqlcmd -S DESKTOP-36O2DIJ -d SIALU -E -Nm -C -f 65001 -b -i database/distribucion_severidades_por_fuente.sql
-```
+## 5. Historia
 
-El COMMIT es único para ambas fuentes y sólo ocurre después de comprobar los conteos exactos. Los scripts interiores cierran transacciones anidadas sin confirmar la transacción externa. Un error revierte ambas fuentes; `-b` y `:on error exit` detienen sqlcmd. `IngestasDetenidas=1` es una declaración del operador, no un detector automático de procesos.
-
-5. Mientras las ingestas siguen detenidas, activar `ORION_SEVERITY_V2_ENABLED=true` en el entorno del despliegue autorizado y actualizar la caché de configuración con el procedimiento usado por esa instalación. Iniciar nuevos procesos para que carguen el cambio. No se verificó contra la API viva que el permiso de consulta de Message esté disponible; las consultas fueron comprobadas con cliente simulado.
-6. Reanudar los mismos lanzadores Orion previamente pausados. Si Palo Alto estaba activo con los parámetros del script existente, reanudarlo con `powershell -File scripts/start-paloalto.ps1`; si tenía otros parámetros, restaurarlos. No iniciar un worker que antes estaba detenido. Verificar primer lote y auditoría v2.
-
-No hay un comando universal de parada/reanudación Orion verificable en este proyecto; esa parte de la ventana depende del lanzador real. Los bloqueos SQL complementan la parada, no la sustituyen.
-
-## Consulta final
-
-Disponible completa en `database/distribucion_severidades_por_fuente.sql`; muestra todas las fuentes y las siete columnas solicitadas. Ejecutar siempre con `sqlcmd -f 65001`.
+- **2026-10-28 18:40:57 UTC.** Se aplicó `reclasificacion-20261028-v2`. Orion recibió severidades deducidas
+  por SIALU: por tipo (1 → Alta, 5 → Informativa, 14 → Media, 100 → Desconocida) o por mensaje
+  («is Down» → Alta, «is Up» → Informativa, «has rebooted» → Media). Los 20 TRAFFIC de Palo Alto pasaron a No Aplica.
+  No quedó registro de quién la ejecutó ni bajo qué ventana.
+- **2026-10-30.** Se retiraron `OrionSeverityClassifier` y `ORION_SEVERITY_V2_ENABLED`. Los eventos nuevos
+  se registran en Desconocida y la severidad real llega por las alertas disparadas.
+- **2026-11-03.** Se preparó y validó con ROLLBACK el retiro de la severidad inferida de los 1801 históricos.
+  Se aplicó con autorización ese mismo día, a las 18:48:52 UTC, siguiendo §4, sin ingesta Orion en ejecución.
+  Verificación posterior, en solo lectura: 1801/1801 eventos coinciden con el manifiesto fila por fila (Desconocida,
+  `SeveridadOrigen` NULL, severidad previa registrada, JSON original intacto). Orion queda con 1801 en Desconocida.
+  Palo Alto sigue con THREAT Alta 1 y Crítica 4 y TRAFFIC No Aplica 20, sin marca de retiro.
+  `movdDisponibilidad` sigue con 410 filas.

@@ -9,8 +9,6 @@ CREATE OR ALTER PROCEDURE [dbo].[sp_catdActivos]
     @Nombre nvarchar(150) = NULL,
     @Hostname nvarchar(255) = NULL,
     @Servicio nvarchar(150) = NULL,
-    @IdTipoActivo smallint = NULL,
-    @IdUnidadInstitucional int = NULL,
     @AreaResponsable nvarchar(100) = NULL,
     @Responsable nvarchar(150) = NULL,
     @Descripcion nvarchar(500) = NULL,
@@ -39,8 +37,6 @@ BEGIN
             THROW 50002, 'Nombre es obligatorio.', 1;
         SET @Hostname = NULLIF(LTRIM(RTRIM(@Hostname)), N'');
         SET @Servicio = NULLIF(LTRIM(RTRIM(@Servicio)), N'');
-        IF @IdTipoActivo IS NULL
-            THROW 50002, 'IdTipoActivo es obligatorio.', 1;
         SET @AreaResponsable = NULLIF(LTRIM(RTRIM(@AreaResponsable)), N'');
         SET @Responsable = NULLIF(LTRIM(RTRIM(@Responsable)), N'');
         SET @Descripcion = NULLIF(LTRIM(RTRIM(@Descripcion)), N'');
@@ -50,8 +46,8 @@ BEGIN
     -- 1. Alta
     IF @Accion = 1
     BEGIN
-        INSERT INTO [dbo].[catdActivos] ([Nombre], [Hostname], [Servicio], [IdTipoActivo], [IdUnidadInstitucional], [AreaResponsable], [Responsable], [Descripcion], [FechaAlta], [FechaBaja], [IdArea], [IdCampus], [IdZonaRed], [Vigente])
-        VALUES (@Nombre, @Hostname, @Servicio, @IdTipoActivo, @IdUnidadInstitucional, @AreaResponsable, @Responsable, @Descripcion, COALESCE(@FechaAlta, SYSUTCDATETIME()), @FechaBaja, @IdArea, @IdCampus, @IdZonaRed, COALESCE(@Vigente, 1));
+        INSERT INTO [dbo].[catdActivos] ([Nombre], [Hostname], [Servicio], [AreaResponsable], [Responsable], [Descripcion], [FechaAlta], [FechaBaja], [IdArea], [IdCampus], [IdZonaRed], [Vigente])
+        VALUES (@Nombre, @Hostname, @Servicio, @AreaResponsable, @Responsable, @Descripcion, COALESCE(@FechaAlta, SYSUTCDATETIME()), @FechaBaja, @IdArea, @IdCampus, @IdZonaRed, COALESCE(@Vigente, 1));
 
         SELECT CAST(SCOPE_IDENTITY() AS int) AS [IdActivo];
         RETURN;
@@ -74,8 +70,6 @@ BEGIN
             [Nombre] = @Nombre,
             [Hostname] = @Hostname,
             [Servicio] = @Servicio,
-            [IdTipoActivo] = @IdTipoActivo,
-            [IdUnidadInstitucional] = @IdUnidadInstitucional,
             [AreaResponsable] = @AreaResponsable,
             [Responsable] = @Responsable,
             [Descripcion] = @Descripcion,
@@ -91,7 +85,7 @@ BEGIN
     -- 4. Consulta general; @Vigente NULL incluye ambos estados
     IF @Accion = 4
     BEGIN
-        SELECT [IdActivo], [Nombre], [Hostname], [Servicio], [IdTipoActivo], [IdUnidadInstitucional], [AreaResponsable], [Responsable], [Descripcion], [FechaAlta], [FechaBaja], [Vigente], [IdArea], [IdCampus], [IdZonaRed]
+        SELECT [IdActivo], [Nombre], [Hostname], [Servicio], [AreaResponsable], [Responsable], [Descripcion], [FechaAlta], [FechaBaja], [Vigente], [IdArea], [IdCampus], [IdZonaRed]
         FROM [dbo].[catdActivos]
         WHERE @Vigente IS NULL OR [Vigente] = @Vigente
         ORDER BY [IdActivo];
@@ -101,7 +95,7 @@ BEGIN
     -- 5. Consulta por identificador principal, incluso si esta inactivo
     IF @Accion = 5
     BEGIN
-        SELECT [IdActivo], [Nombre], [Hostname], [Servicio], [IdTipoActivo], [IdUnidadInstitucional], [AreaResponsable], [Responsable], [Descripcion], [FechaAlta], [FechaBaja], [Vigente], [IdArea], [IdCampus], [IdZonaRed]
+        SELECT [IdActivo], [Nombre], [Hostname], [Servicio], [AreaResponsable], [Responsable], [Descripcion], [FechaAlta], [FechaBaja], [Vigente], [IdArea], [IdCampus], [IdZonaRed]
         FROM [dbo].[catdActivos]
         WHERE [IdActivo] = @IdActivo;
         RETURN;

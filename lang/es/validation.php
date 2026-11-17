@@ -10,9 +10,8 @@ return [
     'min' => ['numeric' => 'El campo :attribute debe ser al menos :min.'],
     'attributes' => [
         'uid' => 'usuario', 'password' => 'contraseña', 'descripcion' => 'descripción',
-        'clave' => 'clave', 'nombre_corto' => 'nombre corto', 'titulo' => 'título',
+        'clave' => 'clave',
         'nombre' => 'nombre', 'email' => 'correo electrónico',
         'id_tipo_usuario' => 'tipo de usuario', 'id_permiso' => 'permiso',
-        'id_coordinacion' => 'coordinación', 'id_departamento' => 'departamento', 'id_jefe' => 'jefe',
     ],
 ];

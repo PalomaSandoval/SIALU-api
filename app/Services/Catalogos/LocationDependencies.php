@@ -9,7 +9,6 @@ class LocationDependencies
     public const CATALOGS = [
         'areas' => ['table' => 'catcAreas', 'column' => 'IdArea'],
         'campus' => ['table' => 'catcCampus', 'column' => 'IdCampus'],
-        'unidades-institucionales' => ['table' => 'catcUnidadesInstitucionales', 'column' => 'IdUnidadInstitucional'],
     ];
 
     public function counts(string $catalog, int $id, bool $lock = false): array
@@ -26,7 +25,6 @@ class LocationDependencies
         return [
             'equipos' => $count('catdActivos'), 'equipos_activos' => $count('catdActivos', true),
             'usuarios_activos' => $catalog === 'areas' ? $count('catcUsuarios', true) : 0,
-            'redes_activas' => in_array($catalog,['unidades-institucionales','campus'],true) ? $count('catdRedesInstitucionales', true) : 0,
         ];
     }
 
@@ -39,7 +37,7 @@ class LocationDependencies
         $db->table('dbo.'.$definition['table'])->where($definition['column'], $id)->lockForUpdate()->first();
         $counts = $this->counts($catalog, $id, true);
         $reasons = [];
-        foreach (['equipos_activos' => 'equipos activos', 'usuarios_activos' => 'usuarios activos', 'redes_activas' => 'redes activas'] as $key => $label) {
+        foreach (['equipos_activos' => 'equipos activos', 'usuarios_activos' => 'usuarios activos'] as $key => $label) {
             if ($counts[$key]) $reasons[] = $counts[$key].' '.$label;
         }
         abort_if((bool) $reasons, 409, 'No se puede desactivar: tiene '.implode(', ', $reasons).'. Reasigna o desactiva esos registros primero.');

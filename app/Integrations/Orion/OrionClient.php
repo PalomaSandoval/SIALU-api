@@ -11,6 +11,11 @@ class OrionClient
     private string $username;
     private string $password;
     private bool $verifySsl;
+    private string $caFile;
+    private bool $legacyTls;
+
+    /** OpenSSL 3 excludes rsa_pkcs1_sha1 at its default level; Orion's SWIS certificate needs it. */
+    public const LEGACY_TLS_CIPHERS = 'DEFAULT:@SECLEVEL=0';
 
     public function __construct()
     {
@@ -50,6 +55,38 @@ class OrionClient
                 'ORION_USERNAME no está configurado.'
             );
         }
+
+        // Trust anchor for Orion's certificate when it is not issued by a CA in PHP's default bundle.
+        $this->caFile = trim((string) config('services.orion.ca_file'));
+
+        if ($this->caFile !== '' && ! is_readable($this->caFile)) {
+            throw new RuntimeException(
+                'ORION_CA_FILE no existe o no se puede leer.'
+            );
+        }
+
+        // LOCAL DEVELOPMENT ONLY: never set ORION_LEGACY_TLS when deploying SIALU (docs/integraciones.md).
+        $this->legacyTls = filter_var(
+            config('services.orion.legacy_tls', false),
+            FILTER_VALIDATE_BOOLEAN
+        );
+
+        if ($this->legacyTls && ! app()->environment('local')) {
+            throw new RuntimeException(
+                'ORION_LEGACY_TLS solo se permite con APP_ENV=local; quitarlo de este entorno.'
+            );
+        }
+    }
+
+    /** A reset before TLS is established means Orion refused the handshake; credentials were never sent. */
+    public static function connectionError(int $errno, int $appConnectMicroseconds, string $error): string
+    {
+        if (in_array($errno, [CURLE_SSL_CONNECT_ERROR, CURLE_RECV_ERROR, CURLE_SEND_ERROR], true) && $appConnectMicroseconds === 0) {
+            return 'Orion cerró el handshake TLS antes de autenticar (cURL '.$errno.'). '
+                .'Revisar el certificado del servicio SWIS de Orion; ver docs/integraciones.md, «TLS de Orion».';
+        }
+
+        return 'Error al conectar con Orion: '.$error;
     }
 
     public function query(string $swql): array
@@ -108,19 +145,22 @@ class OrionClient
                     CURL_SSLVERSION_TLSv1_2,
 
             ]
+            + ($this->caFile !== '' ? [CURLOPT_CAINFO => $this->caFile] : [])
+            + ($this->legacyTls ? [CURLOPT_SSL_CIPHER_LIST => self::LEGACY_TLS_CIPHERS] : [])
         );
 
         $response = curl_exec($ch);
 
         if ($response === false) {
-            $error = curl_error($ch);
+            $message = self::connectionError(
+                curl_errno($ch),
+                (int) curl_getinfo($ch, CURLINFO_APPCONNECT_TIME_T),
+                curl_error($ch)
+            );
 
             curl_close($ch);
 
-            throw new RuntimeException(
-                'Error al conectar con Orion: ' .
-                $error
-            );
+            throw new RuntimeException($message);
         }
 
         $httpCode = curl_getinfo(

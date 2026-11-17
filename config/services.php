@@ -4,7 +4,13 @@ return [
     'orion' => [
         'host' => env('ORION_HOST'), 'port' => env('ORION_PORT', 17778),
         'username' => env('ORION_USERNAME'), 'password' => env('ORION_PASSWORD'),
-        'ssl_verify' => env('ORION_SSL_VERIFY', true),
+        'ssl_verify' => env('ORION_SSL_VERIFY', true), 'ca_file' => env('ORION_CA_FILE'),
+        // Solo desarrollo local (APP_ENV=local): rebaja OpenSSL a SECLEVEL=0. Nunca en despliegue.
+        'legacy_tls' => env('ORION_LEGACY_TLS', false),
+        // Consola web (Availability Statistics por nodo). Deshabilitada por defecto: la consola solo escucha HTTP y
+        // el inicio de sesión enviaría la contraseña en claro. No activar hasta tener transporte seguro.
+        'web_url' => env('ORION_WEB_URL'),
+        'web_stats_enabled' => env('ORION_WEB_STATS_ENABLED', false),
     ],
     'paloalto' => [
         'host' => env('PALOALTO_HOST'), 'port' => env('PALOALTO_PORT', 443),

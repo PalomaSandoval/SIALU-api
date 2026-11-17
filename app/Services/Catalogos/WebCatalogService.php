@@ -10,8 +10,6 @@ class WebCatalogService
         'tipos-usuarios-permisos' => TipoUsuarioPermisoService::class,
     ];
 
-    public function __construct(private InstitutionalCatalogService $institutional) {}
-
     public function definition(string $catalog): array
     {
         return match ($catalog) {
@@ -26,7 +24,7 @@ class WebCatalogService
                 'id_tipo_usuario' => ['column' => 'IdTipoUsuario', 'label' => 'Tipo de usuario', 'catalog' => 'tipos-usuarios'],
                 'id_permiso' => ['column' => 'IdPermiso', 'label' => 'Permiso', 'catalog' => 'permisos'],
             ]],
-            default => $this->institutional->definition($catalog),
+            default => abort(404),
         };
     }
 
@@ -37,12 +35,12 @@ class WebCatalogService
 
     public function all(string $catalog): array
     {
-        return $this->isLegacy($catalog) ? app(self::LEGACY[$catalog])->all() : $this->institutional->all($catalog);
+        return $this->service($catalog)->all();
     }
 
     public function find(string $catalog, int $id): object|array
     {
-        $item = $this->isLegacy($catalog) ? app(self::LEGACY[$catalog])->find($id) : $this->institutional->find($catalog, $id);
+        $item = $this->service($catalog)->find($id);
         abort_if($item === null, 404, 'El registro solicitado no existe.');
 
         return $item;
@@ -68,9 +66,7 @@ class WebCatalogService
 
     public function save(string $catalog, array $data, ?int $id = null): object|array
     {
-        if (! $this->isLegacy($catalog)) {
-            return $this->institutional->save($catalog, $data, $id);
-        }
+        $service = $this->service($catalog);
         $arguments = match ($catalog) {
             'tipos-usuarios' => [$data['descripcion']],
             'permisos' => [$data['clave'], $data['descripcion']],
@@ -81,16 +77,21 @@ class WebCatalogService
             array_unshift($arguments, $id);
         }
 
-        return app(self::LEGACY[$catalog])->{$id === null ? 'create' : 'update'}(...$arguments);
+        return $service->{$id === null ? 'create' : 'update'}(...$arguments);
     }
 
     public function setActive(string $catalog, int $id, bool $active): object|array
     {
-        if (! $this->isLegacy($catalog)) {
-            return $this->institutional->setActive($catalog, $id, $active);
-        }
+        $service = $this->service($catalog);
         $this->find($catalog, $id);
 
-        return app(self::LEGACY[$catalog])->{$active ? 'activate' : 'deactivate'}($id);
+        return $service->{$active ? 'activate' : 'deactivate'}($id);
+    }
+
+    private function service(string $catalog): object
+    {
+        abort_unless($this->isLegacy($catalog), 404);
+
+        return app(self::LEGACY[$catalog]);
     }
 }

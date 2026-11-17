@@ -345,33 +345,6 @@ final class DashboardService
         ) {
             $children = [
                 $this->catalogItem(
-                    'coordinaciones',
-                    'Coordinaciones',
-                    $routes['coordinaciones']
-                        ?? null,
-                    true,
-                    $activeKey
-                ),
-
-                $this->catalogItem(
-                    'departamentos',
-                    'Departamentos',
-                    $routes['departamentos']
-                        ?? null,
-                    true,
-                    $activeKey
-                ),
-
-                $this->catalogItem(
-                    'jefes_departamentos',
-                    'Jefes de Departamentos',
-                    $routes['jefes_departamentos']
-                        ?? null,
-                    true,
-                    $activeKey
-                ),
-
-                $this->catalogItem(
                     'tipos_usuarios',
                     'Tipos de Usuario',
                     $routes['tipos_usuarios']
@@ -396,15 +369,6 @@ final class DashboardService
                     'tipos_usuarios_permisos',
                     'Tipos de Usuarios - Permisos',
                     $routes['tipos_usuarios_permisos'] ?? null,
-                    true,
-                    $activeKey
-                ),
-
-                $this->catalogItem(
-                    'coordinacion_departamentos_jefes',
-                    'Coordinación - Departamentos - Jefes',
-                    $routes['coordinacion_departamentos_jefes']
-                        ?? null,
                     true,
                     $activeKey
                 ),

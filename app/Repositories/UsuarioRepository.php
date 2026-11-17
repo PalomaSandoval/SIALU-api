@@ -232,13 +232,6 @@ final class UsuarioRepository
                 ? (string) $normalized['extension']
                 : null,
 
-            $this->toNullablePositiveInteger(
-                $normalized[
-                    'idcoordinaciondepartamentojefe'
-                ]
-                ?? null
-            ),
-
             max(
                 0,
                 (int) ($normalized['intentos'] ?? 0)
@@ -306,31 +299,6 @@ final class UsuarioRepository
                     'El campo "%s" no contiene un entero válido.',
                     $field
                 )
-            );
-        }
-
-        return (int) $value;
-    }
-
-    /**
-     * @param  mixed  $value
-     */
-    private function toNullablePositiveInteger(
-        $value
-    ): ?int {
-        if (
-            $value === null
-            || $value === ''
-        ) {
-            return null;
-        }
-
-        if (
-            ! is_numeric($value)
-            || (int) $value < 1
-        ) {
-            throw new RuntimeException(
-                'IdCoordinacionDepartamentoJefe no es válido.'
             );
         }
 

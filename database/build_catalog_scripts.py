@@ -8,13 +8,15 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-TABLES = """catcFuentes catcSeveridad catcAcciones catcCriticidad
-catcTipoActivo catcAreas catcCampus catcUnidadesInstitucionales catcZonasRed
+TABLES = """catcFuentes catcSeveridad catcAcciones
+catcAreas catcCampus catcZonasRed
 catdTipoEventos catdActivos catdActivoIP catdRedesInstitucionales
 catdActivoIdentificadorFuente catdMapeoSeveridad catdMapeoAccion
 catdMapeoTipoEvento catcSentidoFlujo""".split()
 ADDED = ['catdMapeoSeveridad', 'catdMapeoAccion', 'catdMapeoTipoEvento',
          'catcSentidoFlujo', 'catdActivoIP']
+# Retired by migrations 015 (institutional units), 017 (asset criticality) and 018 (asset types); older DDL exports still contain them.
+RETIRED_COLUMNS = {'IdUnidadInstitucional', 'IdCriticidad', 'IdTipoActivo'}
 
 
 def generate(source):
@@ -49,6 +51,8 @@ END;
         cols = []
         for m in re.finditer(r'^\s*\[(\w+)\] \[(\w+)\](\([^)]*\))?([^\r\n]*)', body, re.M):
             name, kind, size, rest = m.groups()
+            if name in RETIRED_COLUMNS:
+                continue
             cols.append(dict(name=name, type=kind + (size or ''), identity='IDENTITY' in rest,
                              required='NOT NULL' in rest))
         if table in ADDED and not any(c['name'] == 'Vigente' for c in cols):

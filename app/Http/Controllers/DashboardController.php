@@ -16,9 +16,6 @@ class DashboardController extends Controller
             'permisos' => route('api.v1.catalogos.permisos.index'),
             'tipos_usuarios_permisos' => route('api.v1.catalogos.tipos-usuarios-permisos.index'),
         ];
-        foreach (array_keys(config('catalogs')) as $catalog) {
-            $routes[str_replace('-', '_', $catalog)] = route('api.v1.catalogos.'.$catalog.'.index');
-        }
 
         return response()->json(['data' => $dashboard->context('dashboard', $routes)]);
     }

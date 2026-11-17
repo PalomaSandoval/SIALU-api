@@ -10,7 +10,7 @@ class IngestionCursor
 {
     public function run(int $source, string $stream, callable $work): mixed
     {
-        if ($source < 1 || ! in_array($stream, ['orion', 'paloalto-threat', 'paloalto-traffic'], true)) {
+        if ($source < 1 || ! in_array($stream, ['orion', 'orion-alerts', 'paloalto-threat', 'paloalto-traffic'], true)) {
             throw new RuntimeException('Fuente o flujo de ingesta inválido.');
         }
 

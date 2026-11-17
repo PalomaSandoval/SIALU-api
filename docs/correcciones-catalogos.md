@@ -33,6 +33,19 @@ La primera orden solo revisa datos. `--check` ejecuta las migraciones pendientes
 
 Los respaldos están en `storage/app/audit-backups`: ZIP de código inicial de API y Front-End y JSON de catálogos afectados. Los campos binarios del JSON se identifican como base64. Son respaldos de configuración/código, **no un BACKUP DATABASE completo**, ni una restauración ensayada.
 
+### Retiro de la criticidad de activos (017)
+
+```powershell
+php scripts/migrate-asset-criticality.php           # preflight: conteos, sin escrituras
+php scripts/migrate-asset-criticality.php --check   # ejecuta 017 y comprobaciones; ROLLBACK
+php scripts/migrate-asset-criticality.php --apply   # respaldo verificado y COMMIT
+php tests/integrations/asset-criticality-retired.php
+```
+
+Requiere la versión `catalog-retire-institutional-units-v4` (015). Antes de escribir guarda `storage/app/audit-backups/asset-criticality-*.json` con su `.sha256`, lo relee y lo compara con la base; dentro de la transacción vuelve a compararlo con bloqueo. Con la migración aplicada, y antes de confirmar, comprueba que no cambian las severidades, las equivalencias de severidad, la distribución de eventos por severidad, la disponibilidad ni la consulta de eventos, y persiste un evento Palo Alto sintético que se revierte. La migración se detiene si aparece un objeto, módulo, columna o llave de criticidad que no estaba en el inventario, o si hay criticidad asignada a activos, redes o eventos.
+
+Se conservan solo como registro y no deben ejecutarse después de 017: las migraciones 006–015 (015 recrea `fnRedDeIP`, `sp_catdRedesInstitucionales` y el índice de redes con `IdCriticidad`), `database/schema/BD_SIALU_2026-10-21.sql` y el retiro de severidad Orion ya aplicado (`retirar_severidad_inferida_orion.sql`, `aplicar_retiro_severidad_orion.sql`, `validar_retiro_severidad_orion.sql`), que calcula su hash con `IdCriticidad` y `EsActivoCritico`.
+
 No ejecutar de nuevo `instalar_catalogos.sql` sobre la instalación actual: es el paquete previo y no representa los contratos extendidos de identidad. Las migraciones deben instalarse antes de desplegar el código que usa las columnas nuevas.
 
 ## Verificación ejecutada

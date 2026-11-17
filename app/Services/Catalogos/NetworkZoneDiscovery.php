@@ -14,7 +14,8 @@ class NetworkZoneDiscovery
             ->join('dbo.catcFuentes as f', 'f.IdFuente', '=', 'e.IdFuente')
             ->where('e.IdFuente', \App\Services\Ingestion\SourceIdentity::id('paloalto'))
             ->leftJoin('dbo.movdEventoPaloAlto as p', function ($join) { $join->on('p.IdEvento','=','e.IdEvento')->on('p.FechaEvento','=','e.FechaEvento'); })
-            ->selectRaw("e.IdFuente, e.IdEvento, e.FechaEvento, e.IPOrigen, e.IPDestino, e.IdAccion, f.Nombre as Fuente, r.ZonaOrigen, r.ZonaDestino, p.Vsys, p.ReglaUUID, p.IdSesion, JSON_VALUE(CASE WHEN ISJSON(e.AtributosExtra)=1 THEN e.AtributosExtra ELSE N'{}' END, '$.serial') as Serial");
+            ->leftJoin('dbo.catcSeveridad as s', 's.IdSeveridad', '=', 'e.IdSeveridad')
+            ->selectRaw("e.IdFuente, e.IdEvento, e.FechaEvento, e.IPOrigen, e.IPDestino, e.IdAccion, e.TipoEventoOrigen, s.Nivel as NivelSeveridad, s.Nombre as Severidad, f.Nombre as Fuente, r.ZonaOrigen, r.ZonaDestino, p.Vsys, p.ReglaUUID, p.IdSesion, JSON_VALUE(CASE WHEN ISJSON(e.AtributosExtra)=1 THEN e.AtributosExtra ELSE N'{}' END, '$.serial') as Serial, NULLIF(LTRIM(RTRIM(JSON_VALUE(CASE WHEN ISJSON(e.AtributosExtra)=1 THEN e.AtributosExtra ELSE N'{}' END, '$.subtype'))), N'') as Subtipo");
     }
 
     public function zones()

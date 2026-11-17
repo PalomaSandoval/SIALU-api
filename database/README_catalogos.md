@@ -1,9 +1,22 @@
 # Procedimientos de catálogos de SIALU
 
-**Actualización:** el instalador descrito abajo es histórico. Para el contrato actual, usar `php scripts/migrate-catalogs.php --check` y `--apply`. No reinstalar el paquete antiguo sobre las migraciones 009–014. Ver `docs/correcciones-catalogos.md`.
+**Actualización:** el instalador descrito abajo es histórico. Para el contrato actual, usar `php scripts/migrate-catalogs.php --check` y `--apply`. No reinstalar el paquete antiguo sobre las migraciones 009–015. Ver `docs/correcciones-catalogos.md`.
+
+**Catálogos retirados (29/10/2026):** la migración `015_retirar_unidades_institucionales.sql`
+(versión `catalog-retire-institutional-units-v4`) eliminó `catcUnidadesInstitucionales`,
+`sp_catcUnidadesInstitucionales` y la columna `IdUnidadInstitucional` de `catdActivos` y
+`catdRedesInstitucionales`. Coordinaciones, departamentos, jefes de departamento y su relación
+no tenían objetos en SQL Server; se retiraron de la API y del front.
+
+**Criticidad de activos retirada (03/11/2026):** la migración `017_retirar_criticidad_activos.sql`
+(versión `retire-asset-criticality-v1`, ejecutor `php scripts/migrate-asset-criticality.php --check | --apply`)
+eliminó `catcCriticidad`, `movdActivoCriticidad`, `vwActivoCriticidadVigente`, `fnCriticidadActivo`,
+`sp_catcCriticidad`, las columnas `movdEventos.IdCriticidad` y `movdEventos.EsActivoCritico` y
+`catdRedesInstitucionales.IdCriticidad`. `sp_catdRedesInstitucionales`, `fnRedDeIP` y `vwEventosDetalle`
+ya no exponen criticidad. El catálogo de severidad de eventos y sus equivalencias no cambian.
 
 El archivo `instalar_catalogos.sql` incorpora las cinco columnas faltantes y los
-18 procedimientos pendientes. Está basado en el esquema de `BD_SIALU.sql`
+16 procedimientos pendientes. Está basado en el esquema de `BD_SIALU.sql`
 compartido el 20 de octubre de 2026. No incluye las capas PHP ni pantallas nuevas.
 
 ## Instalación
@@ -17,11 +30,11 @@ compartido el 20 de octubre de 2026. No incluye las capas PHP ni pantallas nueva
 
 No hace falta ejecutar los otros archivos por separado. El instalador usa
 `CREATE OR ALTER PROCEDURE` y comprueba la existencia de las columnas antes de
-agregarlas. Puede repetirse; reemplaza las definiciones de estos 18 SP con las
+agregarlas. Puede repetirse; reemplaza las definiciones de estos 16 SP con las
 del archivo. Requiere SQL Server 2016 SP1 o posterior.
 
 Los archivos individuales están en `procedures/`. Si se usa esa alternativa,
-aplicar primero `migrations/001_catalogos_vigente.sql` y después los 18 SP nuevos.
+aplicar primero `migrations/001_catalogos_vigente.sql` y después los 16 SP nuevos.
 El archivo previo `sp_catcUsuarios.sql` pertenece al cambio anterior y no forma
 parte de este instalador.
 
@@ -36,8 +49,8 @@ Se agrega `Vigente bit NOT NULL DEFAULT (1) WITH VALUES` a:
 - `catdActivoIP`
 
 Las filas existentes reciben 1. Las demás tablas de catálogos ya tienen esa
-columna. No se agregan banderas a las tablas de eventos, sesiones o históricos
-de criticidad: tienen un ciclo de vida diferente.
+columna. No se agregan banderas a las tablas de eventos ni de sesiones: tienen
+un ciclo de vida diferente.
 
 ## Contrato de los SP
 

@@ -39,7 +39,7 @@ try {
  $references=$app->make(App\Http\Controllers\Catalogos\ReferenceCatalogController::class);
  $unknown=$db->table('dbo.catcSeveridad')->where('Codigo','DESCONOCIDA')->value('IdSeveridad');
  $assert($unknown!==null,'Stable unknown severity installed');
- try{$references->deactivate($unknown,'severidad');throw new RuntimeException('Disabled technical severity');}catch(Symfony\Component\HttpKernel\Exception\HttpException $e){$assert($e->getStatusCode()===409,'Dependency conflict');}
+ try{$references->deactivate($unknown,'severidad');throw new RuntimeException('Disabled technical severity');}catch(Symfony\Component\HttpKernel\Exception\HttpException $e){$assert($e->getStatusCode()===405,'Severity levels cannot be deactivated');}
  $external=['activo_id'=>$asset,'fuente_id'=>$source,'tipo'=>'TEST_ID','valor'=>$suffix,'inicio'=>'2026-01-01T00:00:00Z'];
  $db->table('dbo.catdActivos')->where('IdActivo',$asset)->update(['Vigente'=>1]);
  $link=$controller->store($post($external),'identificadores-activo')->getData(true)['data'];

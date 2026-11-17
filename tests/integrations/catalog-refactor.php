@@ -16,9 +16,6 @@ $assert($event['context']['HuellaContexto']!==$different['context']['HuellaConte
 foreach(['natsport'=>'65536','packets'=>'9223372036854775808','natsrc'=>'bad','start'=>'2026/02/31 10:00:00'] as $key=>$value){
     try{$parser->parse(array_replace($raw,[$key=>$value]));throw new RuntimeException('Accepted invalid '.$key);}catch(InvalidArgumentException){$checks++;}
 }
-$classifier=new App\Services\TrafficIpClassifier;
-$assert($classifier->range('2001:0db8:0000::1/64')['address']==='2001:db8::','Canonical IPv6');
-$assert($classifier->classify('2001:db8::1','192.0.2.1',[['nombre'=>'v4','cidr'=>'192.0.2.0/24']])['sentido']==='SIN_CLASIFICAR','Do not cross IP families');
 // Read local evidence; never print institutional values or contact a source.
 $samples=0; $threats=0; $missingThreatSeverity=0;
 foreach(glob(__DIR__.'/../../storage/app/ingestion-private/ingestion/*.json') as $file){

@@ -16,15 +16,15 @@ $conflict = function ($work) use ($assert) {
     throw new RuntimeException('Expected dependency conflict');
 };
 $overview = $locations->index()->getData(true)['data'];
-$assert(isset($overview['areas'], $overview['campus'], $overview['unidades-institucionales'], $overview['resumen']));
+$assert(isset($overview['areas'], $overview['campus'], $overview['resumen']) && !isset($overview['unidades-institucionales'], $overview['resumen']['sin_unidad']));
 $all = $locations->assets(Illuminate\Http\Request::create('/', 'GET'))->getData(true)['data'];
 $assert(count($all) === $overview['resumen']['equipos']);
-foreach (['grupo' => 'sin_grupo', 'campus' => 'sin_campus', 'unidad' => 'sin_unidad'] as $pending => $summary) {
+foreach (['grupo' => 'sin_grupo', 'campus' => 'sin_campus'] as $pending => $summary) {
     $rows = $locations->assets(Illuminate\Http\Request::create('/', 'GET', ['pendiente' => $pending]))->getData(true)['data'];
     $assert(count($rows) === $overview['resumen'][$summary]);
     $assert(count(array_filter($rows, fn ($r) => $r[$pending] !== null)) === 0);
 }
-foreach (['campus' => 'campus', 'areas' => 'area', 'unidades-institucionales' => 'unidad'] as $kind => $filter) {
+foreach (['campus' => 'campus', 'areas' => 'area'] as $kind => $filter) {
     foreach ($overview[$kind] as $entry) {
         $rows = $locations->assets(Illuminate\Http\Request::create('/', 'GET', [$filter => $entry['id']]))->getData(true)['data'];
         $assert(count($rows) === $entry['equipos']);
@@ -53,9 +53,6 @@ try {
     $assert($campus->activate($new['id'])->getData(true)['data']['vigente']);
     $new['descripcion'] = 'Cambio temporal';
     $assert($campus->update(Illuminate\Http\Request::create('/', 'PUT', $new), $new['id'])->getData(true)['data']['descripcion'] === 'Cambio temporal');
-    $unit = $references->store(Illuminate\Http\Request::create('/', 'POST', ['nombre' => 'PRUEBA UNIDAD '.bin2hex(random_bytes(6)), 'descripcion' => 'Temporal']), 'unidades-institucionales')->getData(true)['data'];
-    $assert(!$references->deactivate($unit['id'], 'unidades-institucionales')->getData(true)['data']['vigente']);
-    $assert($references->activate($unit['id'], 'unidades-institucionales')->getData(true)['data']['vigente']);
 } finally { $db->rollBack(); }
 $assert($db->table('dbo.catcCampus')->count() === $before);
 echo "PASS: {$checks} location checks; temporary edits rolled back.\n";

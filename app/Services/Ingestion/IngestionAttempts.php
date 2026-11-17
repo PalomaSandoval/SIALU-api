@@ -16,7 +16,7 @@ class IngestionAttempts
             throw new RuntimeException('Invalid rejected batch');
         }
         $db = DB::connection(IngestionDatabase::name());
-        $adapter = $process === 'orion-node-v1' ? 'orion' : ($process === 'paloalto-v1' ? 'paloalto' : null);
+        $adapter = in_array($process, ['orion-node-v1', 'orion-alert-v1'], true) ? 'orion' : ($process === 'paloalto-v1' ? 'paloalto' : null);
         if (! $adapter || $sourceId !== SourceIdentity::id($adapter) || ! $db->table('dbo.catcFuentes')->where('IdFuente', $sourceId)->where('Vigente', 1)->exists()) {
             throw new RuntimeException('Fuente de lote rechazado inválida.');
         }
@@ -30,30 +30,33 @@ class IngestionAttempts
         ], 'IdLote');
     }
 
-    public function recover(int $sourceId, int $minutes = 15): array
+    /** Alert ingestion has its own lock and process, so it is recovered separately from DOWN/UP and Palo Alto. */
+    public function recover(int $sourceId, int $minutes = 15, bool $alerts = false): array
     {
         if ($minutes < 1) {
             throw new RuntimeException('Recovery age must be positive');
         }
+        $processes = $alerts ? ['orion-alert-v1'] : ['orion-node-v1', 'paloalto-v1'];
         $db = DB::connection(IngestionDatabase::name());
         $cutoff = CarbonImmutable::now('UTC')->subMinutes($minutes)->format('Y-m-d H:i:s.v');
         $sources = $db->table('dbo.movdProcesamiento')->where('IdFuente', $sourceId)->where('Estado', 'EN_PROCESO')->where('FechaInicio', '<', $cutoff)
-            ->whereIn('Proceso', ['orion-node-v1', 'paloalto-v1'])->distinct()->pluck('IdFuente');
+            ->whereIn('Proceso', $processes)->distinct()->pluck('IdFuente');
         $result = ['recovered' => [], 'busy_sources' => []];
         foreach ($sources as $source) {
-            $db->transaction(function () use ($db, $source, $cutoff, &$result) {
-                $lock = $db->selectOne("DECLARE @r int; EXEC @r=sys.sp_getapplock @Resource=?, @LockMode='Exclusive', @LockOwner='Transaction', @LockTimeout=0; SELECT @r AS result", ['SIALU:ingestion:source:'.$source]);
+            $db->transaction(function () use ($db, $source, $cutoff, $processes, $alerts, &$result) {
+                $lock = $db->selectOne("DECLARE @r int; EXEC @r=sys.sp_getapplock @Resource=?, @LockMode='Exclusive', @LockOwner='Transaction', @LockTimeout=0; SELECT @r AS result", [$alerts ? \App\Repositories\SqlServerOrionAlertRepository::lockResource((int) $source) : 'SIALU:ingestion:source:'.$source]);
                 if ((int) $lock->result < 0) {
                     $result['busy_sources'][] = (int) $source;
 
                     return;
                 }
                 $rows = $db->table('dbo.movdProcesamiento')->where('IdFuente', $source)->where('Estado', 'EN_PROCESO')
-                    ->where('FechaInicio', '<', $cutoff)->whereIn('Proceso', ['orion-node-v1', 'paloalto-v1'])->lockForUpdate()->get();
+                    ->where('FechaInicio', '<', $cutoff)->whereIn('Proceso', $processes)->lockForUpdate()->get();
                 foreach ($rows as $row) {
                     // Current adapters commit counters and operational rows together. Any inconsistent pending record needs human review.
                     if ($db->table('dbo.movdEventos')->where('IdLote', $row->IdLote)->exists()
-                        || $db->table('dbo.movdstgEventos')->where('IdLote', $row->IdLote)->exists()) {
+                        || $db->table('dbo.movdstgEventos')->where('IdLote', $row->IdLote)->exists()
+                        || ($alerts && $db->table('dbo.movdAlertasOrion')->where(fn ($q) => $q->where('IdLote', $row->IdLote)->orWhere('IdLoteActualizacion', $row->IdLote))->exists())) {
                         throw new RuntimeException('Intento pendiente con datos operativos: requiere revisión '.$row->IdLote);
                     }
                     $db->table('dbo.movdProcesamiento')->where('IdLote', $row->IdLote)->where('Estado', 'EN_PROCESO')->update([
