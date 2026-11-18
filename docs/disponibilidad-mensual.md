@@ -10,7 +10,9 @@ No usa `/monitoreo/disponibilidad/areas` ni `Orion.ResponseTime`: su recálculo 
   Sin valor: «Sin área» / «Sin grupo».
 - Código: `app/Services/Availability/Monthly/`, `app/Http/Controllers/MonthlyAvailabilityController.php`,
   comando `sialu:orion-monthly-capture`, migración `database/migrations/020_disponibilidad_mensual.sql`.
-- Pruebas: `php tests/integrations/monthly-availability.php` y `php tests/integrations/orion-availability-stats.php`.
+- Pruebas: `php tests/integrations/monthly-availability.php` y `php tests/integrations/orion-availability-stats.php`
+  (sin base ni Orion); `php tests/integrations/monthly-availability-stored.php` (solo lectura sobre las capturas
+  guardadas de octubre de 2026, dentro de una transacción que se revierte).
 
 ## Por qué se guardan capturas
 
@@ -18,6 +20,40 @@ No usa `/monitoreo/disponibilidad/areas` ni `Orion.ResponseTime`: su recálculo 
 (UTC-6): «This Month» y «Last Month», entre otros. La cifra de un mes M solo se puede obtener mientras M es
 «This Month» (provisional) o durante el mes M+1, como «Last Month». Después se pierde. Por eso cada mes se
 conserva en una **captura** guardada en SIALU, y los reportes y PDF se generan solo desde capturas.
+
+Para el usuario hay **un solo reporte por mes**: elige el mes y ve el reporte. Qué captura lo respalda lo decide
+SIALU (la seleccionada del mes); las capturas, su historial y las solicitudes expresas son diagnóstico de
+administradores y se conservan para auditoría.
+
+## Proceso automático
+
+`sialu:orion-monthly-capture --ensure` (programador, cada 5 minutos) decide con `MonthlyCapturePlanner`, comparando
+solo contra lo guardado:
+
+1. El mes objetivo es el anterior al mes local de Orion (UTC-6). Su **ventana** es el mes siguiente completo, desde
+   `ORION_MONTHLY_CAPTURE_START_AT` (02:00 por defecto) del día 1 hasta el último instante del mes: es el único
+   periodo en que Orion lo entrega como «Last Month».
+2. Si el mes ya tiene captura **seleccionada** (completa y validada), no hace nada. No se vuelve a consultar Orion
+   salvo una solicitud expresa de un administrador (`POST /capturas` o `--request`).
+3. Si no la tiene y no hay otra solicitud pendiente o en proceso, registra una solicitud `PROGRAMADA`, que
+   `--process` atiende en el minuto siguiente.
+4. Tras cada intento `FALLIDA`, `PARCIAL` o completo no validado de la ventana espera 30, 60, 120, 240 y después
+   360 minutos, contados desde la última señal de vida del intento anterior. Un reintento que caería después del
+   cierre se adelanta a 5 minutos antes.
+5. En los últimos 3 días de la ventana, cada nueva solicitud queda también en `laravel.log` como advertencia.
+6. Cuando la ventana termina sin captura seleccionada, el mes es **no recuperable**: se registra una sola vez
+   (`laravel.log` y `orion-monthly-schedule.log`, marca en `storage/app/orion-monthly/`) y la pantalla lo indica.
+
+Servicio detenido: como la decisión no depende de haber corrido a una hora concreta, al volver el servicio
+`--process` cierra como `FALLIDA` la captura que quedó sin latido y `--ensure` pide otra de inmediato (su última señal
+de vida es antigua), siempre que la ventana siga abierta. Si el servicio estuvo apagado todo el mes siguiente, el
+mes ya no se puede recuperar.
+
+Los días de un mes se demuestran ahora con la lectura continua de SIALU (`Orion.Events` cada 5 minutos) o con los
+30 días que Orion conserva al momento de la captura; ya no hay capturas diarias durante el mes que dejen días
+demostrados. Sin lectura de SIALU, los primeros días de un mes de 31 días pueden quedar «s/d».
+
+`--status=YYYY-MM` muestra la decisión de un mes sin escribir nada.
 
 ## Captura
 
@@ -50,18 +86,18 @@ Una captura que deja de dar latido 10 minutos se cierra como `FALLIDA`.
 
 Cada captura validada obtenida durante el mes siguiente se **selecciona** para su «Last Month» si es posterior
 a la seleccionada; las anteriores se conservan y `movdDispSeleccionMes` registra cada cambio (solo se agregan
-filas). Un disparador impide seleccionar una captura que no sea `COMPLETA` y validada.
+filas). Un disparador impide seleccionar una captura que no sea `COMPLETA` y validada. Con el proceso automático
+solo una solicitud expresa puede sustituir una selección.
 
 | `estado_mes` | Cuándo |
 |---|---|
-| `oficial` | Mes cerrado con captura seleccionada y el mes siguiente ya terminó (no puede cambiar). |
-| `vigente` | Mes cerrado con captura seleccionada que una captura validada posterior aún puede sustituir. |
-| `provisional` | Mes en curso, desde «This Month» de la última captura terminada. |
-| `parcial` / `no_validada` | Mes cerrado sin captura seleccionable. No es una cifra oficial. |
-| `no_seleccionada` | Se pidió una captura concreta que no es la seleccionada. |
-| `no_disponible` | No hay ninguna captura del mes. |
+| `validado` | Mes cerrado con captura seleccionada (completa y validada). |
+| `pendiente` | Mes cerrado sin captura seleccionada mientras Orion aún lo ofrece; SIALU sigue reintentando. Si hay una captura parcial o no validada se muestra con la marca «PARCIAL — NO OFICIAL». |
+| `no_recuperable` | Terminó el mes siguiente sin captura seleccionada; Orion ya no ofrece el mes. Se muestra la mejor captura parcial si existe, marcada. |
+| `en_curso` | El mes no ha terminado; no se muestran cifras. |
 
-Una captura `PARCIAL` se puede consultar y descargar con la marca «PARCIAL — NO OFICIAL» en cada página.
+`automatico` acompaña al reporte: estado del planificador, ventana, intentos fallidos, último intento (estado,
+fin, motivo) y próximo intento, sin identificadores de captura.
 
 ## Cálculo
 
@@ -102,22 +138,24 @@ Bajo `/api/v1/monitoreo/disponibilidad/reporte-mensual`, con sesión SIALU. La A
 
 | Método y ruta | Uso |
 |---|---|
-| `POST /capturas` | Solo `ADMINISTRADOR`. Registra una solicitud: `202`; `409` si ya hay una pendiente o en proceso; `429` si la anterior manual tiene menos de 15 min. |
-| `GET /capturas/{id}` | Estado, avance (`consultados` de `total`), conteos, motivos, hash. |
-| `GET /capturas?mes=YYYY-MM` | Capturas del mes, historial de selección y la captura en curso. |
-| `GET /meses/{YYYY-MM}[?captura=id]` | Reporte guardado (estado del mes, captura, días, subtotales, nodos). |
-| `GET /meses/{YYYY-MM}/pdf?captura=id` | PDF carta horizontal, encabezado repetido. `404` si no hay captura; `409` si falla el hash. |
+| `GET /meses/{YYYY-MM}` | El reporte del mes (estado, días, subtotales, nodos, estado automático). Cualquier usuario con acceso. |
+| `GET /meses/{YYYY-MM}/pdf[?captura=id]` | PDF carta horizontal. `captura` es la del reporte en pantalla: si el reporte cambió, `409`. `404` sin datos; `409` si falla el hash. |
+| `GET /capturas?mes=YYYY-MM` | Solo `ADMINISTRADOR`. Capturas del mes, historial de selección, captura en curso y estado automático. |
+| `GET /capturas/{id}` | Solo `ADMINISTRADOR`. Estado, avance (`consultados` de `total`), conteos, motivos, hash. |
+| `POST /capturas` | Solo `ADMINISTRADOR`. Solicitud expresa: `202`; `409` si ya hay una pendiente o en proceso; `429` si la anterior manual tiene menos de 15 min. |
 
-El PDF **solo** se genera cuando un usuario pulsa «Exportar PDF» en «Orion → Reporte mensual»: la pantalla pide
-el mes y la captura que muestra, y el archivo se arma en ese momento desde la captura guardada. Las capturas,
-el programador y la importación del resguardo nunca generan PDF ni lo guardan.
+El PDF **solo** se genera cuando un usuario pulsa «Exportar PDF» en «Orion → Reporte mensual»: el archivo se arma
+en ese momento desde la captura guardada que respalda el reporte en pantalla. Las capturas, el programador y la
+importación del resguardo nunca generan PDF ni lo guardan.
 
 ## Operación
 
 | `.env` | Por defecto | |
 |---|---|---|
-| `ORION_MONTHLY_CAPTURE_SCHEDULE_ENABLED` | `false` | Activa el proceso cada minuto y la solicitud diaria. |
-| `ORION_MONTHLY_CAPTURE_DAILY_AT` | `02:00` | Hora local de Orion (UTC-6) de la solicitud diaria. |
+| `ORION_MONTHLY_CAPTURE_SCHEDULE_ENABLED` | `false` | Activa `--process` (cada minuto) y `--ensure` (cada 5 min). |
+| `ORION_MONTHLY_CAPTURE_START_AT` | `02:00` | Hora local de Orion (UTC-6) del día 1 desde la que se consulta el mes cerrado. |
+
+`ORION_MONTHLY_CAPTURE_DAILY_AT` ya no se usa: no hay solicitud diaria.
 
 Requiere `ORION_WEB_STATS_ENABLED=true`, la migración (`php scripts/migrate-monthly-availability.php --check`,
 luego `--apply`) y volver a aplicar `scripts/windows-service/grant-scheduler-sql.sql`.

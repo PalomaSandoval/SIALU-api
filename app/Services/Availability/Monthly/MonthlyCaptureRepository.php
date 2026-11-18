@@ -36,9 +36,9 @@ class MonthlyCaptureRepository
     {
         return $this->db->transaction(function () use ($origin, $userId): array {
             $this->lock('SIALU:disp-mensual:solicitud');
-            $open = $this->db->table('dbo.movdDispCaptura')->whereIn('Estado', ['PENDIENTE', 'EN_PROCESO'])->orderBy('IdCaptura')->value('IdCaptura');
+            $open = $this->openRequest();
             if ($open !== null) {
-                return ['id' => (int) $open, 'creada' => false];
+                return ['id' => $open, 'creada' => false];
             }
             $id = $this->db->table('dbo.movdDispCaptura')->insertGetId([
                 'Uuid' => (string) Str::uuid(), 'Origen' => $origin, 'IdUsuarioSolicita' => $userId,
@@ -47,6 +47,22 @@ class MonthlyCaptureRepository
 
             return ['id' => (int) $id, 'creada' => true];
         });
+    }
+
+    /** The capture request pending or in progress, if any. */
+    public function openRequest(): ?int
+    {
+        $id = $this->db->table('dbo.movdDispCaptura')->whereIn('Estado', ['PENDIENTE', 'EN_PROCESO'])->orderBy('IdCaptura')->value('IdCaptura');
+
+        return $id === null ? null : (int) $id;
+    }
+
+    /** Scheduled and manual captures requested in [$from, $to), oldest first (evidence imports are not attempts). */
+    public function attempts(CarbonImmutable $from, CarbonImmutable $to): array
+    {
+        return $this->db->table('dbo.movdDispCaptura')->whereIn('Origen', ['PROGRAMADA', 'MANUAL'])
+            ->where('FechaSolicitud', '>=', $from->format('Y-m-d H:i:s.v'))->where('FechaSolicitud', '<', $to->format('Y-m-d H:i:s.v'))
+            ->orderBy('IdCaptura')->get(['IdCaptura', 'Origen', 'Estado', 'Valida', 'MesAnterior', 'FechaSolicitud', 'FechaFin', 'Latido', 'MensajeError', 'MotivosInvalidez'])->all();
     }
 
     public function lastManualRequest(): ?CarbonImmutable

@@ -16,15 +16,14 @@ class MonthlyReportPdf
     private const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 
     private const STATES = [
-        'oficial' => 'Oficial', 'vigente' => 'Vigente', 'provisional' => 'Provisional', 'parcial' => 'Parcial',
-        'no_validada' => 'No validada', 'no_seleccionada' => 'Captura no seleccionada', 'no_disponible' => 'No disponible',
+        'validado' => 'Completo y validado', 'pendiente' => 'Pendiente: aún sin resultado validado; SIALU sigue reintentando',
+        'no_recuperable' => 'No recuperable: Orion ya no ofrece este mes', 'en_curso' => 'Mes en curso',
     ];
 
+    /** One report per month: the file name carries only the month (the capture is in the footer, for audit). */
     public static function filename(array $report): string
     {
-        $suffix = $report['captura'] === null ? 'no-disponible' : 'captura-'.$report['captura']['id'];
-
-        return 'disponibilidad-orion-'.$report['mes'].'-'.$suffix.'.pdf';
+        return 'disponibilidad-orion-'.$report['mes'].'.pdf';
     }
 
     public static function render(array $report): string
@@ -64,14 +63,14 @@ class MonthlyReportPdf
         if ($c !== null) {
             $meta[] = 'Estado: <b>'.$e($state).'</b>'.($report['marca_parcial'] ? ' <span class="parcial">PARCIAL</span>' : '');
             $meta[] = 'Fuente del porcentaje: Orion «Availability Statistics», periodo «'.$e($c['periodo_orion']).'»';
-            $meta[] = 'Captura '.$c['id'].' ('.$e(strtolower($c['origen'])).') del '.$e(self::local($c['inicio'])).' (hora de Orion, UTC-6)';
+            $meta[] = 'Consultado a Orion el '.$e(self::local($c['inicio'])).' (hora de Orion, UTC-6)';
             $meta[] = 'Nodos: '.$c['conteos']['total'].' · incluidos '.$c['conteos']['ok'].' · sin datos '.$c['conteos']['sin_datos']
                 .' · con error '.$c['conteos']['error'].' · no consultados '.$c['conteos']['no_consultados'];
             if (! $c['integridad_verificada']) {
                 $meta[] = '<span class="parcial">ADVERTENCIA: el contenido no coincide con su hash; no usar.</span>';
             }
         } else {
-            $meta[] = 'Estado: <b>No disponible</b>. No existe una captura de este mes.';
+            $meta[] = 'Estado: <b>'.$e($state).'</b>. No hay datos de este mes.';
         }
         $general = $report['resumen'][0] ?? null;
         if ($general !== null) {

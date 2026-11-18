@@ -6,6 +6,7 @@ $app = require __DIR__.'/../../bootstrap/app.php';
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 
 use App\Services\Availability\Monthly\DowntimeDays as Days;
+use App\Services\Availability\Monthly\MonthlyCapturePlanner as Planner;
 use App\Services\Availability\Monthly\MonthlyCaptureRepository as Repo;
 use App\Services\Availability\Monthly\MonthlyCaptureRunner as Runner;
 use App\Services\Availability\Monthly\MonthlyReportBuilder as Builder;
@@ -156,26 +157,63 @@ check(Repo::evaluate($capture(['OK'], ['mes_estable' => false]))[1] === false, '
 check(Repo::evaluate($capture(['OK'], ['reloj_fin' => null]))[1] === false, 'Missing end clock invalidates');
 check(Repo::evaluate($capture(['OK'], ['reloj_inicio' => ['utc' => '2026-11-18 17:45:00.000', 'local' => '2026-11-18 12:45:00.000']]))[1] === false, 'Offset other than UTC-6 invalidates');
 
+// --- Automatic process: when a closed month is requested ---------------------------------------------------------
+$at = fn (string $iso) => C::parse($iso, 'UTC');
+$try = fn (string $state, string $signal, bool $valid = false) => ['estado' => $state, 'valida' => $valid, 'ultima_senal' => $signal];
+$plan = fn (string $now, array $attempts = [], bool $selected = false, bool $open = false) => Planner::decide('2026-10', $at($now), $selected, $attempts, $open, '02:00');
+[$wFrom, $wTo] = Planner::window('2026-10', '02:00');
+check($wFrom->toIso8601ZuluString() === '2026-11-01T08:00:00Z' && $wTo->toIso8601ZuluString() === '2026-12-01T06:00:00Z', 'Window: from 02:00 local of Nov 1 to the end of November (UTC-6)');
+check(array_map(fn ($d) => $d->toIso8601ZuluString(), Planner::window('2026-12', '00:00')) === ['2027-01-01T06:00:00Z', '2027-02-01T06:00:00Z'], 'Window across the year');
+check($plan('2026-10-20T12:00:00Z')['estado'] === 'en_curso' && $plan('2026-10-20T12:00:00Z')['proximo_intento'] === '2026-11-01T08:00:00Z', 'Month not closed: nothing requested, first attempt announced');
+check($plan('2026-11-01T07:00:00Z')['estado'] === 'programado' && ! $plan('2026-11-01T07:00:00Z')['solicitar'], 'Closed but before start_at: waits');
+check($plan('2026-11-01T08:00:00Z')['solicitar'] === true, 'At start_at the closed month is requested');
+check($plan('2026-11-18T12:00:00Z', [$try('COMPLETA', '2026-11-01T08:04:00Z', true)], true)['estado'] === 'completo', 'Validated month: never requested again');
+check($plan('2026-11-29T12:00:00Z', [$try('COMPLETA', '2026-11-01T08:04:00Z', true)], true)['solicitar'] === false, 'Validated month: not requested day after day');
+check($plan('2026-11-01T08:01:00Z', [], false, true)['estado'] === 'en_proceso', 'Pending or running request: nothing new');
+$one = [$try('FALLIDA', '2026-11-01T08:05:00Z')];
+check($plan('2026-11-01T08:20:00Z', $one)['estado'] === 'reintento' && $plan('2026-11-01T08:20:00Z', $one)['proximo_intento'] === '2026-11-01T08:35:00Z', 'First retry 30 min after the failure');
+check($plan('2026-11-01T08:35:00Z', $one)['solicitar'], 'Retry requested when due');
+$five = array_fill(0, 5, $try('PARCIAL', '2026-11-03T10:00:00Z'));
+check($plan('2026-11-03T15:59:00Z', $five)['estado'] === 'reintento' && $plan('2026-11-03T16:00:00Z', $five)['solicitar'], 'Partial attempts retried, at most every 360 min');
+check($plan('2026-11-01T09:00:00Z', [$try('COMPLETA', '2026-11-01T08:04:00Z')])['intentos_fallidos'] === 1, 'Complete but not validated counts as failed');
+check($plan('2026-11-01T08:10:00Z', [$try('PENDIENTE', '2026-11-01T08:05:00Z')])['intentos_fallidos'] === 0, 'Unfinished request is not a failed attempt');
+// Service stopped: a capture abandoned on Nov 2 (last heartbeat then) is retried at once when the service is back.
+check($plan('2026-11-20T15:00:00Z', [$try('FALLIDA', '2026-11-02T03:00:00Z')])['solicitar'], 'After an outage the retry is immediate');
+check($plan('2026-11-25T15:00:00Z')['solicitar'], 'Service off since before the close: requested as soon as it runs');
+check($plan('2026-11-29T12:00:00Z')['en_riesgo'] && ! $plan('2026-11-20T12:00:00Z')['en_riesgo'], 'Pending month at risk in its last 3 days');
+$late = $plan('2026-12-01T03:10:00Z', array_fill(0, 5, $try('FALLIDA', '2026-12-01T03:00:00Z')));
+check($late['estado'] === 'reintento' && $late['proximo_intento'] === '2026-12-01T05:55:00Z', 'Retry moved before the window closes');
+check($plan('2026-12-01T06:00:00Z')['estado'] === 'no_recuperable' && ! $plan('2026-12-01T06:00:00Z')['solicitar'], 'After the window: unrecoverable, never requested');
+check($plan('2027-03-01T00:00:00Z', [], true)['estado'] === 'completo', 'Validated month stays complete after the window');
+check(Planner::validStartAt('02:00') && ! Planner::validStartAt('2:00') && ! Planner::validStartAt('24:00'), 'start_at format');
+$monthlyJobs = array_values(array_filter(app(Illuminate\Console\Scheduling\Schedule::class)->events(), fn ($e) => str_contains((string) $e->command, 'orion-monthly-capture')));
+$byFlag = fn (string $flag) => array_values(array_filter($monthlyJobs, fn ($e) => str_contains((string) $e->command, $flag)));
+check(count($monthlyJobs) === 2 && count($byFlag('--process')) === 1 && count($byFlag('--ensure')) === 1, 'Scheduler: --process and --ensure only');
+check($byFlag('--request') === [], 'Scheduler: no daily capture request');
+check($byFlag('--ensure')[0]->expression === '*/5 * * * *' && $byFlag('--process')[0]->expression === '* * * * *', 'Scheduler: ensure every 5 min, process every minute');
+
 // --- Routes and validation (no SQL: validation fails before any query) ------------------------------------------
 $routes = Illuminate\Support\Facades\Route::getRoutes();
 $route = fn ($name) => $routes->getByName('api.v1.monitoreo.disponibilidad.mensual.'.$name);
 foreach (['capturas' => 'GET', 'capturas.solicitar' => 'POST', 'capturas.estado' => 'GET', 'mes' => 'GET', 'mes.pdf' => 'GET'] as $name => $method) {
     check($route($name) !== null && in_array($method, $route($name)->methods(), true) && in_array('sialu.auth', $route($name)->gatherMiddleware(), true), "Route $name requires a SIALU session");
 }
-check(in_array('sialu.role:ADMINISTRADOR', $route('capturas.solicitar')->gatherMiddleware(), true), 'Only administrators request captures');
-foreach (['capturas', 'mes', 'mes.pdf'] as $name) {
+foreach (['capturas.solicitar', 'capturas', 'capturas.estado'] as $name) {
+    check(in_array('sialu.role:ADMINISTRADOR', $route($name)->gatherMiddleware(), true), "Captures ($name) are administrative diagnosis");
+}
+foreach (['mes', 'mes.pdf'] as $name) {
     check(! in_array('sialu.role:ADMINISTRADOR', $route($name)->gatherMiddleware(), true), "Any user with access reads $name");
 }
 $controller = new App\Http\Controllers\MonthlyAvailabilityController;
 foreach (['2026-13', '26-10', '2026-1', 'x', '2026-10-01'] as $bad) {
     check($controller->month(Illuminate\Http\Request::create('/'), $bad)->getStatusCode() === 422, 'Month '.$bad.' rejected');
 }
-check($controller->month(Illuminate\Http\Request::create('/', 'GET', ['captura' => '1; DROP']), '2026-10')->getStatusCode() === 422, 'Non-numeric capture rejected');
 check($controller->index(Illuminate\Http\Request::create('/', 'GET', ['mes' => 'nope']))->getStatusCode() === 422, 'Capture list requires a month');
 
 // --- PDFs only on demand: nothing in the capture path or the scheduler renders one -----------------------------
 $base = dirname(__DIR__, 2);
 foreach (['app/Services/Availability/Monthly/MonthlyCaptureRunner.php', 'app/Services/Availability/Monthly/MonthlyCaptureRepository.php',
+    'app/Services/Availability/Monthly/MonthlyCapturePlanner.php',
     'app/Services/Availability/Monthly/MonthlyBackupImport.php', 'app/Services/Availability/Monthly/MonthlyReportService.php',
     'app/Console/Commands/OrionMonthlyCaptureCommand.php', 'routes/console.php'] as $file) {
     $code = file_get_contents($base.'/'.$file);

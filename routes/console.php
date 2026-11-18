@@ -84,10 +84,9 @@ Schedule::command("sialu:sync paloalto-threat --persist --page-size={$threatPage
     ->when(fn () => (bool) config('sialu.schedule.paloalto_threat.enabled'))
     ->appendOutputTo(storage_path('logs/paloalto-threat-schedule.log'));
 
-// Reporte mensual de disponibilidad (docs/disponibilidad-mensual.md). La API solo registra solicitudes; aquí se
-// atienden, una a la vez (≈ 3-4 min para 168 nodos en una sola sesión web). Las capturas cuyo proceso muere se
-// cierran como FALLIDA tras 10 min sin latido. Una solicitud programada diaria, en hora local de Orion (UTC-6),
-// garantiza capturas de «Last Month» durante todo el mes siguiente; la vigente es la última completa y validada.
+// Reporte mensual de disponibilidad (docs/disponibilidad-mensual.md). Las solicitudes se atienden aquí, una a la vez
+// (≈ 3-4 min para 168 nodos en una sola sesión web). Las capturas cuyo proceso muere se cierran como FALLIDA tras
+// 10 min sin latido.
 Schedule::command('sialu:orion-monthly-capture --process')
     ->name('sialu-orion-monthly-process')
     ->description('Orion: atender capturas mensuales de disponibilidad')
@@ -95,15 +94,17 @@ Schedule::command('sialu:orion-monthly-capture --process')
     ->withoutOverlapping(30)
     ->when(fn () => (bool) config('sialu.schedule.orion_monthly.enabled'))
     ->appendOutputTo(storage_path('logs/orion-monthly-schedule.log'));
-$monthlyAt = (string) config('sialu.schedule.orion_monthly.daily_at', '02:00');
-if (! preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $monthlyAt)) {
-    Log::warning('ORION_MONTHLY_CAPTURE_DAILY_AT no es HH:MM; se usa 02:00.', ['valor' => $monthlyAt]);
-    $monthlyAt = '02:00';
+// El mes cerrado se consulta solo: --ensure revisa cada 5 minutos si el mes anterior (hora de Orion) ya tiene una
+// captura completa y validada. Si la tiene, no hace nada; si no, la solicita a partir de ORION_MONTHLY_CAPTURE_START_AT
+// del día 1 y, tras cada intento fallido, espera 30, 60, 120, 240 y luego 360 min. Como solo compara contra lo
+// guardado, un servicio que estuvo apagado reintenta al volver mientras Orion siga ofreciendo el mes.
+if (! \App\Services\Availability\Monthly\MonthlyCapturePlanner::validStartAt((string) config('sialu.schedule.orion_monthly.start_at', '02:00'))) {
+    Log::warning('ORION_MONTHLY_CAPTURE_START_AT no es HH:MM; se usa 02:00.', ['valor' => config('sialu.schedule.orion_monthly.start_at')]);
 }
-Schedule::command('sialu:orion-monthly-capture --request')
-    ->name('sialu-orion-monthly-request')
-    ->description('Orion: solicitar la captura mensual diaria')
-    ->dailyAt($monthlyAt)
-    ->timezone('Etc/GMT+6')
+Schedule::command('sialu:orion-monthly-capture --ensure')
+    ->name('sialu-orion-monthly-ensure')
+    ->description('Orion: asegurar la captura del mes cerrado')
+    ->everyFiveMinutes()
+    ->withoutOverlapping(10)
     ->when(fn () => (bool) config('sialu.schedule.orion_monthly.enabled'))
     ->appendOutputTo(storage_path('logs/orion-monthly-schedule.log'));

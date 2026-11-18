@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\Availability\Monthly\MonthlyCapturePlanner;
 use App\Services\Availability\Monthly\MonthlyCaptureRepository;
 use App\Services\Availability\Monthly\MonthlyReportPdf;
 use App\Services\Availability\Monthly\MonthlyReportService;
@@ -15,6 +16,8 @@ use Throwable;
 /**
  * Monthly availability report of Orion (docs/disponibilidad-mensual.md). The API never queries Orion: requesting a
  * capture only registers it (the scheduler runs it) and every report or PDF is rebuilt from stored captures.
+ * Users see one report per month (GET /meses/{mes}); captures, their history and requests are administrative
+ * diagnosis only.
  */
 class MonthlyAvailabilityController extends Controller
 {
@@ -26,7 +29,7 @@ class MonthlyAvailabilityController extends Controller
         $this->repository ??= new MonthlyCaptureRepository;
     }
 
-    /** POST /capturas (administrators). */
+    /** POST /capturas (administrators): explicit request to query Orion again, even for a month already validated. */
     public function request(SessionManager $session)
     {
         $last = $this->repository->lastManualRequest();
@@ -50,7 +53,7 @@ class MonthlyAvailabilityController extends Controller
         return $capture === null ? response()->json(['message' => 'La captura no existe.'], 404) : response()->json(['data' => $capture]);
     }
 
-    /** GET /capturas?mes=YYYY-MM */
+    /** GET /capturas?mes=YYYY-MM (administrators): stored captures, selection history and automatic state. */
     public function index(Request $request)
     {
         try {
@@ -63,12 +66,12 @@ class MonthlyAvailabilityController extends Controller
             'mes' => $month,
             'capturas' => (new MonthlyReportService($this->repository))->captures($month),
             'selecciones' => $this->repository->selections($month),
-            'en_curso' => $this->repository->db()->table('dbo.movdDispCaptura')->whereIn('Estado', ['PENDIENTE', 'EN_PROCESO'])
-                ->orderBy('IdCaptura')->value('IdCaptura'),
+            'en_curso' => $this->repository->openRequest(),
+            'automatico' => (new MonthlyCapturePlanner($this->repository, MonthlyReportService::startAt()))->status($month),
         ]]);
     }
 
-    /** GET /meses/{mes}?captura=id */
+    /** GET /meses/{mes}: the single report of the month. */
     public function month(Request $request, string $month)
     {
         try {
@@ -78,16 +81,27 @@ class MonthlyAvailabilityController extends Controller
         }
     }
 
-    /** GET /meses/{mes}/pdf?captura=id */
+    /**
+     * GET /meses/{mes}/pdf[?captura=id]: rendered only here, when the user presses «Exportar PDF». `captura` is the
+     * capture behind the report on screen; if the month's report changed meanwhile the export is refused (409) so the
+     * PDF never differs from what the user saw.
+     */
     public function pdf(Request $request, string $month)
     {
         try {
             $report = $this->report($request, $month);
+            $expected = $request->query('captura');
+            if ($expected !== null && ! ctype_digit((string) $expected)) {
+                throw new InvalidArgumentException('La captura debe ser un número.');
+            }
         } catch (InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage(), 'errors' => ['mes' => [$e->getMessage()]]], 422);
         }
         if ($report['captura'] === null) {
-            return response()->json(['message' => 'No disponible: no existe una captura de '.$report['mes'].'.'], 404);
+            return response()->json(['message' => 'No disponible: todavía no hay un reporte de '.$report['mes'].'.'], 404);
+        }
+        if ($expected !== null && (int) $expected !== $report['captura']['id']) {
+            return response()->json(['message' => 'El reporte del mes se actualizó. Recarga la página y vuelve a exportar.'], 409);
         }
         if (! $report['captura']['integridad_verificada']) {
             Log::error('La captura de disponibilidad mensual no coincide con su hash.', ['captura' => $report['captura']['id']]);
@@ -113,13 +127,7 @@ class MonthlyAvailabilityController extends Controller
 
     private function report(Request $request, string $month): array
     {
-        $month = $this->validMonth($month);
-        $capture = $request->query('captura');
-        if ($capture !== null && ! ctype_digit((string) $capture)) {
-            throw new InvalidArgumentException('La captura debe ser un número.');
-        }
-
-        return (new MonthlyReportService($this->repository))->report($month, $capture === null ? null : (int) $capture);
+        return (new MonthlyReportService($this->repository))->report($this->validMonth($month));
     }
 
     private function validMonth(mixed $value): string

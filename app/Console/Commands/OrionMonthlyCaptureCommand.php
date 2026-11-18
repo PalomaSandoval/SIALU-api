@@ -2,22 +2,32 @@
 
 namespace App\Console\Commands;
 
+use App\Services\Availability\Monthly\DowntimeDays;
 use App\Services\Availability\Monthly\MonthlyBackupImport;
+use App\Services\Availability\Monthly\MonthlyCapturePlanner;
 use App\Services\Availability\Monthly\MonthlyCaptureRepository;
 use App\Services\Availability\Monthly\MonthlyCaptureRunner;
+use App\Services\Availability\Monthly\MonthlyReportService;
 use App\Services\Ingestion\IngestionDatabase;
+use Carbon\CarbonImmutable;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
  * Monthly availability captures (docs/disponibilidad-mensual.md).
- * --request: registers a scheduled request (unless one is pending or in progress).
+ * --ensure: (scheduler) requests the closed month only while it lacks a complete and validated capture and Orion still
+ *   offers it, spacing retries (MonthlyCapturePlanner); reports once when a month could not be recovered.
+ * --status=YYYY-MM: automatic state of a month, without writing.
+ * --request: explicit administrative request (MANUAL), even when the month is already validated.
  * --process: closes abandoned captures and runs the oldest pending one (the HTTP API only registers requests).
  * --import-backup=DIR: shows what a verified evidence backup contains; with --persist stores it as a capture.
  */
 class OrionMonthlyCaptureCommand extends Command
 {
-    protected $signature = 'sialu:orion-monthly-capture {--request : Registrar una solicitud programada}
+    protected $signature = 'sialu:orion-monthly-capture {--ensure : Solicitar el mes cerrado si aún no tiene captura validada}
+        {--status= : Estado automático de un mes (YYYY-MM), sin escrituras}
+        {--request : Solicitud administrativa expresa, aunque el mes ya esté validado}
         {--process : Ejecutar la solicitud pendiente más antigua}
         {--import-backup= : Carpeta de un resguardo verificado}
         {--persist : Con --import-backup, guardar la captura}';
@@ -29,9 +39,25 @@ class OrionMonthlyCaptureCommand extends Command
         try {
             IngestionDatabase::verifyConfiguredConnection();
             $repository = new MonthlyCaptureRepository;
+            if ($this->option('ensure')) {
+                $this->ensure($repository, CarbonImmutable::now('UTC'));
+
+                return self::SUCCESS;
+            }
+            if (($month = $this->option('status')) !== null) {
+                if (! preg_match('/^20\d{2}-(0[1-9]|1[0-2])$/', (string) $month)) {
+                    $this->error('El mes debe tener el formato YYYY-MM.');
+
+                    return self::INVALID;
+                }
+                $this->line(json_encode((new MonthlyCapturePlanner($repository, MonthlyReportService::startAt()))->status($month),
+                    JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+                return self::SUCCESS;
+            }
             if ($this->option('request')) {
-                $request = $repository->request('PROGRAMADA', null);
-                $this->info($request['creada'] ? "Solicitud {$request['id']} registrada." : "Ya hay una captura pendiente o en proceso: {$request['id']}.");
+                $request = $repository->request('MANUAL', null);
+                $this->info($request['creada'] ? "Solicitud expresa {$request['id']} registrada." : "Ya hay una captura pendiente o en proceso: {$request['id']}.");
 
                 return self::SUCCESS;
             }
@@ -81,13 +107,44 @@ class OrionMonthlyCaptureCommand extends Command
 
                 return self::SUCCESS;
             }
-            $this->error('Indique --request, --process o --import-backup.');
+            $this->error('Indique --ensure, --status, --request, --process o --import-backup.');
 
             return self::INVALID;
         } catch (Throwable $e) {
             $this->error('No se completó la captura mensual: '.($e instanceof \RuntimeException ? $e->getMessage() : class_basename($e)));
 
             return self::FAILURE;
+        }
+    }
+
+    /** Quiet when there is nothing to do: it runs every 5 minutes. */
+    private function ensure(MonthlyCaptureRepository $repository, CarbonImmutable $now): void
+    {
+        $planner = new MonthlyCapturePlanner($repository, MonthlyReportService::startAt());
+        $month = MonthlyCaptureRunner::previousMonth(DowntimeDays::localMonth($now));
+        $status = $planner->status($month, $now);
+        if ($status['solicitar']) {
+            $request = $repository->request('PROGRAMADA', null);
+            if ($request['creada']) {
+                $message = "$month: solicitud automática {$request['id']} registrada (intento ".($status['intentos_fallidos'] + 1)
+                    .'; Orion ofrece el mes hasta '.$status['ventana']['hasta'].').';
+                $this->info($message);
+                if ($status['en_riesgo']) {
+                    Log::warning('Disponibilidad mensual: el mes aún no tiene captura validada y Orion dejará de ofrecerlo pronto. '.$message);
+                }
+            }
+        }
+
+        // A month that left Orion's window without a validated capture is lost: say it once, loudly.
+        $lost = MonthlyCaptureRunner::previousMonth($month);
+        $marker = storage_path('app/orion-monthly/no-recuperable-'.$lost);
+        if ($planner->status($lost, $now)['estado'] === 'no_recuperable' && ! is_file($marker)) {
+            $message = "Disponibilidad mensual de $lost NO RECUPERABLE: no se obtuvo una captura completa y validada mientras Orion "
+                .'ofrecía ese mes (solo entrega el mes en curso y el anterior).';
+            $this->error($message);
+            Log::error($message);
+            @mkdir(dirname($marker), 0775, true);
+            @file_put_contents($marker, CarbonImmutable::now('UTC')->toIso8601ZuluString().PHP_EOL);
         }
     }
 
@@ -98,7 +155,7 @@ class OrionMonthlyCaptureCommand extends Command
             $this->warn($reason);
         }
         if ($result['seleccionada']) {
-            $this->info('Seleccionada como captura vigente de su mes anterior.');
+            $this->info('Es ahora la captura del reporte de su mes anterior.');
         }
     }
 }

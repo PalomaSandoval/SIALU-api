@@ -6,79 +6,69 @@ use Carbon\CarbonImmutable;
 use InvalidArgumentException;
 
 /**
- * The monthly report of one month, read only from stored captures (never from Orion).
+ * The single report of one month, read only from stored captures (never from Orion). Which capture backs it is
+ * decided here, not by the user: the month's selected capture (the latest complete and validated one obtained
+ * during the following month). Every capture and the selection history stay stored for audit.
  *
  * estado_mes:
- * - oficial: closed month whose capture selection can no longer change (the following month ended);
- * - vigente: closed month with a selected (complete and valid) capture that a later valid capture may still replace;
- * - provisional: current month, from «This Month» of the latest finished capture;
- * - parcial / no_validada: closed month with captures, none complete and valid;
- * - no_seleccionada: a specific capture that is not the month's selection;
- * - no_disponible: no capture of the month.
- * `marca_parcial` is true whenever the capture shown is PARCIAL.
+ * - validado: closed month with a selected capture (complete and validated);
+ * - pendiente: closed month without a selected capture while Orion still offers it; SIALU keeps retrying
+ *   automatically (see MonthlyCapturePlanner) and the latest partial or not validated capture, if any, is shown marked;
+ * - no_recuperable: the following month ended without a selected capture; Orion no longer offers the month;
+ * - en_curso: the month has not ended; its report is obtained automatically after it closes.
+ * `automatico` carries the planner state (attempts, next attempt, window) for the explanation shown on screen.
  */
 class MonthlyReportService
 {
-    public function __construct(private MonthlyCaptureRepository $repository) {}
+    public function __construct(private MonthlyCaptureRepository $repository, private ?MonthlyCapturePlanner $planner = null)
+    {
+        $this->planner ??= new MonthlyCapturePlanner($repository, MonthlyReportService::startAt());
+    }
 
-    public function report(string $month, ?int $captureId = null, ?CarbonImmutable $now = null): array
+    public static function startAt(): string
+    {
+        $value = (string) config('sialu.schedule.orion_monthly.start_at', '02:00');
+
+        return MonthlyCapturePlanner::validStartAt($value) ? $value : '02:00';
+    }
+
+    public function report(string $month, ?CarbonImmutable $now = null): array
     {
         $now ??= CarbonImmutable::now('UTC');
-        $current = DowntimeDays::localMonth($now);
-        if ($month > $current) {
+        if ($month > DowntimeDays::localMonth($now)) {
             throw new InvalidArgumentException('El mes todavía no comienza.');
         }
+        $auto = $this->planner->status($month, $now);
+        if ($auto['estado'] === 'en_curso') {
+            return $this->unavailable($month, 'en_curso', $auto);
+        }
         $selection = $this->repository->selection($month);
-
-        if ($captureId !== null) {
-            $capture = $this->repository->find($captureId);
-            if ($capture === null || ! in_array($month, [$capture->MesAnterior, $capture->MesActual], true) || ! in_array($capture->Estado, MonthlyCaptureRepository::FINAL, true)) {
-                throw new InvalidArgumentException('La captura no existe, no ha terminado o no contiene ese mes.');
-            }
-            if ($capture->Estado === 'FALLIDA') {
-                throw new InvalidArgumentException('La captura falló y no contiene un reporte.');
-            }
-            $state = match (true) {
-                $capture->MesAnterior === $month && $selection !== null && $selection['id_captura'] === $captureId => $this->closedState($month, $current),
-                $capture->MesActual === $month && $month === $current => 'provisional',
-                default => 'no_seleccionada',
-            };
-
-            return $this->build($month, $capture, $state, $selection);
-        }
-
-        if ($month === $current) {
-            $capture = $this->repository->latestCurrent($month);
-
-            return $capture === null ? $this->unavailable($month) : $this->build($month, $capture, 'provisional', $selection);
-        }
         if ($selection !== null) {
-            return $this->build($month, $this->repository->find($selection['id_captura']), $this->closedState($month, $current), $selection);
+            return $this->build($month, $this->repository->find($selection['id_captura']), 'validado', $auto);
         }
+        $state = $auto['estado'] === 'no_recuperable' ? 'no_recuperable' : 'pendiente';
         $capture = $this->repository->latestUnselectable($month);
-        if ($capture !== null) {
-            return $this->build($month, $capture, $capture->Estado === 'PARCIAL' ? 'parcial' : 'no_validada', null);
-        }
 
-        return $this->unavailable($month);
+        return $capture === null ? $this->unavailable($month, $state, $auto) : $this->build($month, $capture, $state, $auto);
     }
 
-    /** A closed month is official once the month in which it could be captured has ended. */
-    private function closedState(string $month, string $current): string
+    private function unavailable(string $month, string $state, array $auto): array
     {
-        $window = CarbonImmutable::createFromFormat('!Y-m', $month, 'UTC')->addMonthNoOverflow()->format('Y-m');
-
-        return $current > $window ? 'oficial' : 'vigente';
+        return ['mes' => $month, 'dias_mes' => count(DowntimeDays::days($month)), 'estado_mes' => $state, 'marca_parcial' => false,
+            'automatico' => self::publicAuto($auto), 'captura' => null, 'dias' => [], 'resumen' => [], 'nodos' => []];
     }
 
-    private function unavailable(string $month): array
+    /** What any user may see of the automatic process: no capture ids. */
+    private static function publicAuto(array $auto): array
     {
-        return ['mes' => $month, 'dias_mes' => count(DowntimeDays::days($month)), 'estado_mes' => 'no_disponible', 'marca_parcial' => false,
-            'captura' => null, 'dias' => [], 'resumen' => [], 'nodos' => [],
-            'capturas' => $this->captures($month), 'selecciones' => $this->repository->selections($month)];
+        $last = $auto['ultimo_intento'];
+
+        return ['estado' => $auto['estado'], 'ventana' => $auto['ventana'], 'intentos_fallidos' => $auto['intentos_fallidos'],
+            'proximo_intento' => $auto['proximo_intento'], 'en_riesgo' => $auto['en_riesgo'],
+            'ultimo_intento' => $last === null ? null : ['estado' => strtolower($last['estado']), 'fin' => $last['fin'], 'motivo' => $last['motivo']]];
     }
 
-    private function build(string $month, object $capture, string $state, ?array $selection): array
+    private function build(string $month, object $capture, string $state, array $auto): array
     {
         $id = (int) $capture->IdCaptura;
         $stored = $this->repository->stored($id, $month);
@@ -89,6 +79,7 @@ class MonthlyReportService
 
         return [
             'mes' => $month, 'dias_mes' => count($stored['dias']), 'estado_mes' => $state, 'marca_parcial' => $capture->Estado === 'PARCIAL',
+            'automatico' => self::publicAuto($auto),
             'captura' => [
                 'id' => $id, 'origen' => $capture->Origen, 'estado' => $capture->Estado, 'valida' => (bool) $capture->Valida,
                 'periodo_orion' => $capture->MesAnterior === $month ? 'Last Month' : 'This Month',
@@ -98,8 +89,7 @@ class MonthlyReportService
                 'advertencias' => $capture->Advertencias === null ? [] : json_decode($capture->Advertencias, true),
                 'sesion_cerrada' => $capture->SesionCerrada === null ? null : (bool) $capture->SesionCerrada,
                 'hash' => $capture->HashContenido, 'integridad_verificada' => $this->repository->verify($id),
-                'seleccionada' => $selection !== null && $selection['id_captura'] === $id && $capture->MesAnterior === $month,
-                'seleccion' => $selection !== null && $selection['id_captura'] === $id ? $selection : null,
+                'seleccionada' => $state === 'validado',
                 'conteos' => ['total' => (int) $capture->TotalNodos, 'ok' => (int) $capture->NodosOk, 'sin_datos' => (int) $capture->NodosSinDatos,
                     'error' => (int) $capture->NodosError, 'no_consultados' => (int) $capture->NodosNoConsultados],
             ],
@@ -110,7 +100,6 @@ class MonthlyReportService
                 'motivo' => $n['motivo'], 'texto_orion' => $n['texto_orion'],
                 'disponibilidad' => $n['milesimas'] === null ? null : MonthlyReportBuilder::format($n['milesimas']), 'dias' => $n['dias'],
             ], $this->ordered($stored['nodos'])),
-            'capturas' => $this->captures($month), 'selecciones' => $this->repository->selections($month),
         ];
     }
 
