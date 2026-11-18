@@ -7,7 +7,8 @@ use DOMElement;
 
 /**
  * Read-only session on Orion's web console (Orion Platform 2015.1, ASP.NET forms login) to obtain the exact values
- * of the «Availability Statistics» resource for one node. Each call logs in, queries and logs out.
+ * of the «Availability Statistics» resource. Each session() logs in once, queries one or more nodes on the same
+ * connection and always logs out.
  *
  * Disabled unless ORION_WEB_STATS_ENABLED=true: the console only listens on HTTP, so the login sends the password
  * in clear text. Cookies live only in the cURL handle's memory and are discarded with it; nothing is written to disk
@@ -28,8 +29,12 @@ class OrionWebClient
     private string $password;
     private string $caFile;
 
-    /** @var \CurlHandle|null Open only during one availabilityStats() call. */
+    /** @var \CurlHandle|null Open only during one session() call. */
     private $curl = null;
+
+    private bool $inSession = false;
+
+    private bool $loggedIn = false;
 
     public function __construct()
     {
@@ -53,36 +58,107 @@ class OrionWebClient
         $this->caFile = trim((string) config('services.orion.ca_file'));
     }
 
-    /** @return array{periodos: list<array{periodo: string, texto: string, disponibilidad: float}>, sesion_cerrada: bool} */
+    /**
+     * «Availability Statistics» of one node in its own session (login, query, logout).
+     * `vacia` is true when Orion answered an empty table: that is not proof of a node without data until the caller
+     * confirms the NodeID exists in Orion.Nodes (Orion answers the same for a NodeID that does not exist).
+     *
+     * @return array{periodos: list<array{periodo: string, texto: string, disponibilidad: float}>, vacia: bool, sesion_cerrada: bool}
+     */
     public function availabilityStats(int $nodeId): array
+    {
+        self::assertNodeId($nodeId);
+        $session = $this->session(function () use ($nodeId): ?array {
+            $response = $this->fetchStats($nodeId);
+            if ($response['status'] !== 200) {
+                throw new OrionWebException('GetAvailabilityStats respondió HTTP '.$response['status'].'.');
+            }
+
+            return OrionAvailabilityStatsParser::parseOrEmpty($response['body']);
+        });
+
+        return ['periodos' => $session['resultado'] ?? [], 'vacia' => $session['resultado'] === null, 'sesion_cerrada' => $session['sesion_cerrada']];
+    }
+
+    /**
+     * Runs $work inside one web session: a single login, any number of fetchStats() calls on the same connection,
+     * and a logout that is always attempted (finally), whatever $work does. The cURL handle and its in-memory
+     * cookies are discarded at the end.
+     *
+     * @template T
+     *
+     * @param  callable(self): T  $work
+     * @return array{resultado: T, sesion_cerrada: bool}
+     */
+    public function session(callable $work): array
+    {
+        if ($this->curl !== null || $this->inSession) {
+            throw new OrionWebException('Ya hay una sesión web de Orion abierta en este cliente.');
+        }
+        $this->open();
+        $this->inSession = true;
+        $this->loggedIn = false;
+        $closed = false;
+        try {
+            $this->login();
+            $this->loggedIn = true;
+            $result = $work($this);
+        } finally {
+            if ($this->loggedIn) {
+                $closed = $this->logout();
+            }
+            $this->inSession = false;
+            $this->loggedIn = false;
+            $this->close();
+        }
+
+        return ['resultado' => $result, 'sesion_cerrada' => $closed];
+    }
+
+    /**
+     * One GetAvailabilityStats request on the open session; the body is returned untouched for evidence.
+     * A 302 to the login page means the session expired: callers may relogin() once and repeat.
+     *
+     * @return array{status: int, body: string, sesion_vencida: bool}
+     */
+    public function fetchStats(int $nodeId): array
+    {
+        self::assertNodeId($nodeId);
+        if (! $this->inSession || ! $this->loggedIn) {
+            throw new OrionWebException('No hay una sesión web de Orion abierta.');
+        }
+        $response = $this->send('POST', self::STATS_PATH, [
+            'Content-Type: application/json; charset=utf-8',
+            'Accept: application/json',
+        ], json_encode(['nodeId' => $nodeId], JSON_THROW_ON_ERROR));
+        $location = $response['headers']['location'][0] ?? '';
+
+        return [
+            'status' => $response['status'],
+            'body' => $response['body'],
+            'sesion_vencida' => $response['status'] === 302 && stripos($location, 'Login.aspx') !== false,
+        ];
+    }
+
+    /** Replaces an expired session inside session(): best-effort logout, then a new login on the same handle. */
+    public function relogin(): void
+    {
+        if (! $this->inSession) {
+            throw new OrionWebException('No hay una sesión web de Orion abierta.');
+        }
+        if ($this->loggedIn) {
+            $this->logout();
+            $this->loggedIn = false;
+        }
+        $this->login();
+        $this->loggedIn = true;
+    }
+
+    private static function assertNodeId(int $nodeId): void
     {
         if ($nodeId < 1 || $nodeId > self::MAX_NODE_ID) {
             throw new OrionWebException('NodeID inválido.');
         }
-
-        $this->open();
-        $loggedIn = false;
-        $closed = false;
-        try {
-            $this->login();
-            $loggedIn = true;
-            $response = $this->send('POST', self::STATS_PATH, [
-                'Content-Type: application/json; charset=utf-8',
-                'Accept: application/json',
-            ], json_encode(['nodeId' => $nodeId], JSON_THROW_ON_ERROR));
-
-            if ($response['status'] !== 200) {
-                throw new OrionWebException('GetAvailabilityStats respondió HTTP '.$response['status'].'.');
-            }
-            $periods = OrionAvailabilityStatsParser::parse($response['body']);
-        } finally {
-            if ($loggedIn) {
-                $closed = $this->logout();
-            }
-            $this->close();
-        }
-
-        return ['periodos' => $periods, 'sesion_cerrada' => $closed];
     }
 
     private function login(): void

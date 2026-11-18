@@ -40,6 +40,14 @@ GRANT INSERT ON dbo.movdAmenazas TO rol_SialuProgramador;
 -- Orion.Events DOWN/UP (`sialu:sync orion --persist`): además de movdEventos/movdstgEventos y los mapas de arriba,
 -- abre y cierra intervalos de disponibilidad.
 GRANT SELECT, INSERT, UPDATE ON dbo.movdDisponibilidad TO rol_SialuProgramador;
+-- Reporte mensual de disponibilidad (`sialu:orion-monthly-capture`, migración 020): atiende solicitudes y guarda
+-- capturas. Lee la cobertura de DOWN/UP en movdDisponibilidad y movdProcesamiento (ya concedidos arriba).
+GRANT SELECT, INSERT, UPDATE ON dbo.movdDispCaptura TO rol_SialuProgramador;
+GRANT SELECT, INSERT ON dbo.movdDispCapturaNodo TO rol_SialuProgramador;
+GRANT SELECT, INSERT ON dbo.movdDispCapturaDia TO rol_SialuProgramador;
+GRANT SELECT, INSERT ON dbo.movdDispCapturaCaida TO rol_SialuProgramador;
+GRANT SELECT, INSERT ON dbo.movdDispCapturaResumen TO rol_SialuProgramador;
+GRANT SELECT, INSERT ON dbo.movdDispSeleccionMes TO rol_SialuProgramador;
 -- sys.sp_getapplock: ya lo permite public.
 
 IF SUSER_ID(N'NT SERVICE\SialuScheduler') IS NULL

@@ -33,6 +33,14 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/monitoreo/disponibilidad/areas', [\App\Http\Controllers\AreaAvailabilityController::class, 'show'])->name('monitoreo.disponibilidad.areas');
             Route::get('/monitoreo/disponibilidad/nodos/orion', [\App\Http\Controllers\OrionNodesController::class, 'index'])->name('monitoreo.disponibilidad.nodos.orion');
             Route::get('/monitoreo/disponibilidad/nodos/{nodeId}/orion',[\App\Http\Controllers\NodeAvailabilityStatsController::class, 'show'])->name('monitoreo.disponibilidad.nodo.orion');
+            // Reporte mensual (docs/disponibilidad-mensual.md): solo lee capturas guardadas; solicitar una captura es de administradores.
+            Route::prefix('/monitoreo/disponibilidad/reporte-mensual')->name('monitoreo.disponibilidad.mensual.')->group(function (): void {
+                Route::get('/capturas', [\App\Http\Controllers\MonthlyAvailabilityController::class, 'index'])->name('capturas');
+                Route::post('/capturas', [\App\Http\Controllers\MonthlyAvailabilityController::class, 'request'])->middleware('sialu.role:ADMINISTRADOR')->name('capturas.solicitar');
+                Route::get('/capturas/{id}', [\App\Http\Controllers\MonthlyAvailabilityController::class, 'show'])->whereNumber('id')->name('capturas.estado');
+                Route::get('/meses/{mes}', [\App\Http\Controllers\MonthlyAvailabilityController::class, 'month'])->name('mes');
+                Route::get('/meses/{mes}/pdf', [\App\Http\Controllers\MonthlyAvailabilityController::class, 'pdf'])->name('mes.pdf');
+            });
             Route::get('/monitoreo/amenazas/severidad', [\App\Http\Controllers\ThreatSeverityController::class, 'show'])->name('monitoreo.amenazas.severidad');
             Route::get('/monitoreo/amenazas/detalle', [\App\Http\Controllers\ThreatSeverityController::class, 'threats'])->name('monitoreo.amenazas.detalle');
             Route::get('/monitoreo/amenazas/ficha', [\App\Http\Controllers\ThreatSeverityController::class, 'profile'])->name('monitoreo.amenazas.ficha');

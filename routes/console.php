@@ -83,3 +83,27 @@ Schedule::command("sialu:sync paloalto-threat --persist --page-size={$threatPage
     ->withoutOverlapping($threatLock)
     ->when(fn () => (bool) config('sialu.schedule.paloalto_threat.enabled'))
     ->appendOutputTo(storage_path('logs/paloalto-threat-schedule.log'));
+
+// Reporte mensual de disponibilidad (docs/disponibilidad-mensual.md). La API solo registra solicitudes; aquí se
+// atienden, una a la vez (≈ 3-4 min para 168 nodos en una sola sesión web). Las capturas cuyo proceso muere se
+// cierran como FALLIDA tras 10 min sin latido. Una solicitud programada diaria, en hora local de Orion (UTC-6),
+// garantiza capturas de «Last Month» durante todo el mes siguiente; la vigente es la última completa y validada.
+Schedule::command('sialu:orion-monthly-capture --process')
+    ->name('sialu-orion-monthly-process')
+    ->description('Orion: atender capturas mensuales de disponibilidad')
+    ->everyMinute()
+    ->withoutOverlapping(30)
+    ->when(fn () => (bool) config('sialu.schedule.orion_monthly.enabled'))
+    ->appendOutputTo(storage_path('logs/orion-monthly-schedule.log'));
+$monthlyAt = (string) config('sialu.schedule.orion_monthly.daily_at', '02:00');
+if (! preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $monthlyAt)) {
+    Log::warning('ORION_MONTHLY_CAPTURE_DAILY_AT no es HH:MM; se usa 02:00.', ['valor' => $monthlyAt]);
+    $monthlyAt = '02:00';
+}
+Schedule::command('sialu:orion-monthly-capture --request')
+    ->name('sialu-orion-monthly-request')
+    ->description('Orion: solicitar la captura mensual diaria')
+    ->dailyAt($monthlyAt)
+    ->timezone('Etc/GMT+6')
+    ->when(fn () => (bool) config('sialu.schedule.orion_monthly.enabled'))
+    ->appendOutputTo(storage_path('logs/orion-monthly-schedule.log'));

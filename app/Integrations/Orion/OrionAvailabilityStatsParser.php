@@ -55,6 +55,52 @@ class OrionAvailabilityStatsParser
     }
 
     /**
+     * Like parse(), but an empty table (`Rows: []`) returns null instead of failing. Orion answers that both for a
+     * node without data and for a NodeID that does not exist, so null alone never proves «sin datos».
+     *
+     * @return list<array{periodo: string, texto: string, disponibilidad: float}>|null
+     */
+    public static function parseOrEmpty(string $json): ?array
+    {
+        $data = json_decode($json, true);
+        $table = is_array($data) && array_key_exists('d', $data) ? $data['d'] : $data;
+        if (is_array($table) && is_array($table['Columns'] ?? null) && ($table['Rows'] ?? null) === []) {
+            return null;
+        }
+
+        return self::parse($json);
+    }
+
+    /**
+     * Exact value in thousandths of a percentage point: "23.719 %" -> 23719, "100 %" -> 100000. Uses the same
+     * separator rules as percent() but never goes through floating point, so averages computed from it are exact.
+     * More than three decimals would lose precision and is rejected.
+     */
+    public static function thousandths(string $text): int
+    {
+        $number = self::percent($text);
+        $value = preg_replace('/[\s\x{00A0}\x{202F}]+/u', '', $text) ?? '';
+        $value = preg_replace('/%$/', '', $value) ?? '';
+        $decimal = max(strrpos($value, '.'), strrpos($value, ','));
+        if ($decimal === false) {
+            $integer = $value;
+            $fraction = '';
+        } else {
+            $integer = str_replace(['.', ','], '', substr($value, 0, $decimal));
+            $fraction = substr($value, $decimal + 1);
+        }
+        if (strlen($fraction) > 3) {
+            throw new OrionWebException('Porcentaje con más de tres decimales: '.self::excerpt($text).'.');
+        }
+        $result = (int) $integer * 1000 + (int) str_pad($fraction, 3, '0');
+        if (abs($result / 1000 - $number) > 0.0005) {
+            throw new OrionWebException('Porcentaje de disponibilidad no reconocido: '.self::excerpt($text).'.');
+        }
+
+        return $result;
+    }
+
+    /**
      * "48.860 %" or "48,860 %" -> 48.86. A percentage never exceeds 100, so a single separator is always the decimal
      * one; when both appear, the last one is the decimal separator and the other groups thousands.
      */

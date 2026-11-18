@@ -35,6 +35,12 @@ return [
             'page_size' => (int) env('PALOALTO_THREAT_SCHEDULE_PAGE_SIZE', 500),
             'max_pages' => (int) env('PALOALTO_THREAT_SCHEDULE_MAX_PAGES', 20),
         ],
+        // Monthly availability report (docs/disponibilidad-mensual.md): every minute the pending capture requests
+        // are run; once a day (daily_at, Orion local time UTC-6) a scheduled capture is requested.
+        'orion_monthly' => [
+            'enabled' => (bool) env('ORION_MONTHLY_CAPTURE_SCHEDULE_ENABLED', false),
+            'daily_at' => (string) env('ORION_MONTHLY_CAPTURE_DAILY_AT', '02:00'),
+        ],
     ],
     // Coverage and freshness of ingestion (read-only views; see App\Services\Coverage).
     // max_lag_minutes: a stream whose last successful query is older than this is shown as delayed.

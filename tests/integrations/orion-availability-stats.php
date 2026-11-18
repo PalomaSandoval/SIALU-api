@@ -215,11 +215,15 @@ check(in_array('sialu.auth', $route->gatherMiddleware(), true), 'Route requires 
 
 class FakeController extends NodeAvailabilityStatsController
 {
-    public function __construct(private Closure $make) {}
+    public array $existsCalls = [];
+
+    /** @param Closure(int): bool $exists */
+    public function __construct(private Closure $make, private ?Closure $exists = null) {}
     protected function client(): OrionWebClient { return ($this->make)(); }
+    protected function nodeExists(int $id): bool { $this->existsCalls[] = $id; return $this->exists === null ? true : ($this->exists)($id, count($this->existsCalls)); }
 }
-$call = function (string $id, Closure $make): array {
-    $response = (new FakeController($make))->show($id);
+$call = function (string $id, Closure $make, ?Closure $exists = null): array {
+    $response = (new FakeController($make, $exists))->show($id);
 
     return [$response->getStatusCode(), $response->getData(true)];
 };
@@ -240,5 +244,52 @@ config(['services.orion' => $base]);
 check($status === 503 && str_contains($body['message'], 'rechazó') && ! str_contains(json_encode($body), SECRET), 'Rejected login: clear 503 without secrets');
 [$status, $body] = $call('153', fn () => throw new LogicException('internal '.SECRET));
 check($status === 503 && $body === ['message' => 'No fue posible consultar Orion.'], 'Unexpected failure: generic 503');
+
+// --- Empty answers: «sin datos» only for a NodeID confirmed in Orion.Nodes --------------------------------------
+$empty = table([]);
+check(Parser::parseOrEmpty($empty) === null, 'Empty table is null, not an error');
+check(Parser::parseOrEmpty(table($live)) === $parsed, 'parseOrEmpty keeps full tables');
+fails(fn () => Parser::parseOrEmpty(table(array_slice($live, 0, 3))), 'parseOrEmpty still rejects incomplete tables');
+fails(fn () => Parser::parseOrEmpty('<html>Login</html>'), 'parseOrEmpty still rejects non-JSON');
+fails(fn () => Parser::parse($empty), 'parse() keeps rejecting an empty table');
+$emptyWeb = fn () => new FakeWeb(ok(['POST /Orion/Services/AsyncResources.asmx/GetAvailabilityStats' => ['status' => 200, 'body' => $empty]]));
+$result = $emptyWeb()->availabilityStats(150);
+check($result['vacia'] === true && $result['periodos'] === [] && $result['sesion_cerrada'] === true, 'Client reports an empty answer as vacia');
+[$status, $body] = $call('150', $emptyWeb);
+check($status === 200 && $body['data']['estado'] === 'sin_datos' && $body['data']['periodos'] === [], 'Existing node with empty answer: sin_datos');
+[$status, $body] = $call('153', fn () => new FakeWeb(ok()));
+check($status === 200 && $body['data']['estado'] === 'con_datos', 'Node with periods: con_datos');
+[$status, $body] = $call('999999', fn () => throw new RuntimeException('web must not be queried'), fn () => false);
+check($status === 404 && str_contains($body['message'], 'no existe'), 'Unknown NodeID: 404 before any web session');
+[$status] = $call('150', $emptyWeb, fn ($id, $n) => $n === 1);
+check($status === 404, 'Node removed between the check and the empty answer: 404, not sin_datos');
+[$status, $body] = $call('150', $emptyWeb, fn () => throw new RuntimeException('SWIS down'));
+check($status === 503 && ! isset($body['data']), 'Existence cannot be verified: 503, never sin_datos');
+
+// --- One session, several nodes ---------------------------------------------------------------------------------
+$web = new FakeWeb(ok());
+$session = $web->session(fn (OrionWebClient $c) => [$c->fetchStats(153)['status'], $c->fetchStats(154)['status'], $c->fetchStats(155)['status']]);
+check($session['resultado'] === [200, 200, 200] && $session['sesion_cerrada'] === true, 'Several nodes in one session');
+check(count(array_filter($lines($web), fn ($l) => $l === 'POST /Orion/Login.aspx')) === 1 && $web->opened === 1 && $web->closed === 1, 'One login and one handle for the whole session');
+check(end($web->requests)['line'] === 'GET /Orion/Logout.aspx', 'Session ends with logout');
+$web = new FakeWeb(ok());
+fails(fn () => $web->session(function (OrionWebClient $c) { $c->fetchStats(1); throw new OrionWebException('stop'); }), 'Work failure propagates');
+check(end($web->requests)['line'] === 'GET /Orion/Logout.aspx' && $web->closed === 1, 'Logout and close even when the work fails');
+$web = new FakeWeb(ok());
+fails(fn () => $web->fetchStats(153), 'fetchStats outside a session is refused');
+check($web->requests === [], 'No request outside a session');
+$web = new FakeWeb(ok(['POST /Orion/Services/AsyncResources.asmx/GetAvailabilityStats' => ['status' => 302, 'headers' => ['location' => ['/Orion/Login.aspx?ReturnUrl=x']]]]));
+$session = $web->session(fn (OrionWebClient $c) => $c->fetchStats(153));
+check($session['resultado']['sesion_vencida'] === true, 'Redirect to login is reported as an expired session');
+$web = new FakeWeb(ok());
+$web->session(function (OrionWebClient $c) { $c->relogin(); return $c->fetchStats(153); });
+check(count(array_filter($lines($web), fn ($l) => $l === 'POST /Orion/Login.aspx')) === 2, 'relogin() logs in again on the same session');
+
+// --- Exact thousandths ------------------------------------------------------------------------------------------
+foreach (['23.719 %' => 23719, '100.000 %' => 100000, '0.000 %' => 0, '48,860 %' => 48860, '100 %' => 100000, '99.9 %' => 99900, '1.234,567 %' => null] as $text => $expected) {
+    if ($expected === null) { fails(fn () => Parser::thousandths($text), 'Reject '.$text); continue; }
+    check(Parser::thousandths($text) === $expected, 'Thousandths of '.$text);
+}
+fails(fn () => Parser::thousandths('12.3456 %'), 'Reject more than three decimals');
 
 echo "OK orion-availability-stats: {$checks} checks\n";

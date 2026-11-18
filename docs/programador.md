@@ -2,7 +2,8 @@
 
 Automatiza los procesos periódicos de SIALU-api: `sialu:orion-status --persist` (estado actual de nodos,
 ver [integraciones.md](integraciones.md)), `sialu:sync paloalto-threat --persist` (amenazas de Palo Alto)
-y `sialu:sync orion --persist` (eventos DOWN/UP, ver «Orion eventos DOWN/UP»).
+y `sialu:sync orion --persist` (eventos DOWN/UP, ver «Orion eventos DOWN/UP»), además de
+`sialu:orion-monthly-capture` (reporte mensual de disponibilidad, ver [disponibilidad-mensual.md](disponibilidad-mensual.md)).
 Cada uno se activa por separado en `.env`. Las alertas de Orion, Palo Alto
 **TRAFFIC** y `sialu:paloalto-watch` **no** están programados: TRAFFIC llega a ≈ 7 000 filas/s, más de lo
 que la XML API y la escritura actual pueden procesar, y `paloalto-watch` también procesaría TRAFFIC.

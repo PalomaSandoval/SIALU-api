@@ -112,7 +112,7 @@ class AreaAvailabilityCalculator
     }
 
     /** Values are grouped ignoring case and surrounding spaces, as the location import compares them; blank is null. */
-    private static function group(mixed $value): array
+    public static function group(mixed $value): array
     {
         $label = $value === null ? '' : trim((string) $value);
 
@@ -120,7 +120,7 @@ class AreaAvailabilityCalculator
     }
 
     /** Spelling shown for a group whose values differ only in case: the most frequent, then the first alphabetically. */
-    private static function label(array $counts): ?string
+    public static function label(array $counts): ?string
     {
         uksort($counts, fn ($a, $b) => $counts[$b] <=> $counts[$a] ?: strcmp((string) $a, (string) $b));
         $label = (string) array_key_first($counts);
@@ -129,7 +129,7 @@ class AreaAvailabilityCalculator
     }
 
     /** Named groups alphabetically, the unnamed group (null) last. */
-    private static function compareLabels(?string $a, ?string $b): int
+    public static function compareLabels(?string $a, ?string $b): int
     {
         return ($a === null) <=> ($b === null) ?: strcasecmp((string) $a, (string) $b);
     }
