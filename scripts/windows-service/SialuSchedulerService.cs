@@ -1,6 +1,6 @@
 // SialuScheduler: servicio de Windows que ejecuta "php artisan schedule:run" al inicio de cada minuto.
 // Qué se programa y con qué frecuencia lo decide Laravel (routes/console.php); este servicio solo es el reloj.
-// Compilar e instalar con scripts/windows-service/install-scheduler-service.ps1 (ver docs/programador.md).
+// Compilar e instalar con scripts/windows-service/install-scheduler-service.ps1.
 //
 // Argumentos: --php <php.exe> --app <carpeta SIALU-api> [--console] [--once]
 //   --console  ejecuta en primer plano (pruebas) hasta Ctrl+C.

@@ -1,4 +1,4 @@
--- Reporte mensual de disponibilidad de Orion (docs/disponibilidad-mensual.md).
+-- Reporte mensual de disponibilidad de Orion.
 -- Cada captura es un recorrido secuencial por «Availability Statistics» de todos los nodos de Orion, más los conteos
 -- de caídas por día. Una captura terminada (COMPLETA, PARCIAL o FALLIDA) no se modifica: sus filas, subtotales
 -- y hash son lo que se vuelve a mostrar y descargar. La selección oficial de un mes solo se agrega, nunca se edita.

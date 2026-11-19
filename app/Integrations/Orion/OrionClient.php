@@ -65,7 +65,7 @@ class OrionClient
             );
         }
 
-        // LOCAL DEVELOPMENT ONLY: never set ORION_LEGACY_TLS when deploying SIALU (docs/integraciones.md).
+        // LOCAL DEVELOPMENT ONLY: never set ORION_LEGACY_TLS when deploying SIALU.
         $this->legacyTls = filter_var(
             config('services.orion.legacy_tls', false),
             FILTER_VALIDATE_BOOLEAN
@@ -83,7 +83,7 @@ class OrionClient
     {
         if (in_array($errno, [CURLE_SSL_CONNECT_ERROR, CURLE_RECV_ERROR, CURLE_SEND_ERROR], true) && $appConnectMicroseconds === 0) {
             return 'Orion cerró el handshake TLS antes de autenticar (cURL '.$errno.'). '
-                .'Revisar el certificado del servicio SWIS de Orion; ver docs/integraciones.md, «TLS de Orion».';
+                .'Revisar el certificado del servicio SWIS de Orion.';
         }
 
         return 'Error al conectar con Orion: '.$error;

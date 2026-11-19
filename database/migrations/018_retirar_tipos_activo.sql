@@ -53,7 +53,7 @@ IF EXISTS (SELECT 1 FROM dbo.catdActivos AS a WITH (UPDLOCK, HOLDLOCK)
            WHERE t.Nombre <> N'Otro')
     THROW 51807, 'Hay activos clasificados con un tipo distinto de «Otro»; conciliar antes de retirar.', 1;
 GO
--- Contrato sin IdTipoActivo (idéntico a database/procedures/sp_catdActivos.sql).
+-- Contrato sin IdTipoActivo; esta migración instala la definición en SQL Server.
 SET ANSI_NULLS ON;
 GO
 SET QUOTED_IDENTIFIER ON;

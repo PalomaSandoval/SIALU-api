@@ -61,7 +61,7 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID(N'dbo.catdR
       <> N'Campus:0:1,IdCriticidad:0:1,IdUnidadInstitucional:0:1,PrefijoCIDR:0:1,RangoFin:2:0,RangoInicio:1:0,Tipo:0:1,Zona:0:1'
     THROW 51608, 'La definición de IX_catdRedesInstitucionales_Rango no es la esperada.', 1;
 GO
--- Contratos sin IdUnidadInstitucional (idénticos a database/procedures y database/functions).
+-- Contratos sin IdUnidadInstitucional; esta migración instala las definiciones en SQL Server.
 SET ANSI_NULLS ON;
 GO
 SET QUOTED_IDENTIFIER ON;

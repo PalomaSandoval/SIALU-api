@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
   Recompila SialuScheduler.exe y reinicia el servicio existente (sin reinstalarlo ni cambiar cuenta, dependencias o permisos).
-  Requiere PowerShell como administrador. Ver docs/programador.md.
+  Requiere PowerShell como administrador.
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File scripts\windows-service\update-scheduler-service.ps1
 #>

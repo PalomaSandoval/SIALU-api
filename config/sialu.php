@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'libreoffice_path' => env('SIALU_LIBREOFFICE_PATH'),
     'persistence_enabled' => env('SIALU_PERSISTENCE_ENABLED', false),
     'staging' => ['disk' => 'ingestion'],
     'sources' => [
@@ -35,7 +36,7 @@ return [
             'page_size' => (int) env('PALOALTO_THREAT_SCHEDULE_PAGE_SIZE', 500),
             'max_pages' => (int) env('PALOALTO_THREAT_SCHEDULE_MAX_PAGES', 20),
         ],
-        // Monthly availability report (docs/disponibilidad-mensual.md): every minute the pending capture requests are
+        // Monthly availability report: every minute the pending capture requests are
         // run; every 5 minutes the closed month without a validated capture is requested (from start_at, Orion local
         // time UTC-6, on the first day of the following month), with retries spaced out after failures.
         'orion_monthly' => [

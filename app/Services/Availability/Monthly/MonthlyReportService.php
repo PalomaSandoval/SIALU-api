@@ -7,15 +7,15 @@ use InvalidArgumentException;
 
 /**
  * The single report of one month, read only from stored captures (never from Orion). Which capture backs it is
- * decided here, not by the user: the month's selected capture (the latest complete and validated one obtained
- * during the following month). Every capture and the selection history stay stored for audit.
+ * decided here, not by the user: the first complete and validated capture selected for the closed month.
+ * Later captures remain stored for audit and do not change that report.
  *
  * estado_mes:
  * - validado: closed month with a selected capture (complete and validated);
  * - pendiente: closed month without a selected capture while Orion still offers it; SIALU keeps retrying
  *   automatically (see MonthlyCapturePlanner) and the latest partial or not validated capture, if any, is shown marked;
  * - no_recuperable: the following month ended without a selected capture; Orion no longer offers the month;
- * - en_curso: the month has not ended; its report is obtained automatically after it closes.
+ * - en_curso: the current month's provisional «This Month» capture, when available.
  * `automatico` carries the planner state (attempts, next attempt, window) for the explanation shown on screen.
  */
 class MonthlyReportService
@@ -40,7 +40,9 @@ class MonthlyReportService
         }
         $auto = $this->planner->status($month, $now);
         if ($auto['estado'] === 'en_curso') {
-            return $this->unavailable($month, 'en_curso', $auto);
+            $capture = $this->repository->latestCurrent($month);
+
+            return $capture === null ? $this->unavailable($month, 'en_curso', $auto) : $this->build($month, $capture, 'en_curso', $auto);
         }
         $selection = $this->repository->selection($month);
         if ($selection !== null) {

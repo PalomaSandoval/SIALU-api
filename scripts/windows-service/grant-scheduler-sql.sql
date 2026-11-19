@@ -1,5 +1,5 @@
 /*
-  Permisos mínimos de SQL Server para el servicio SialuScheduler (docs/programador.md).
+  Permisos mínimos de SQL Server para el servicio SialuScheduler.
   Incluye `sialu:orion-status --persist`, `sialu:sync orion --persist` y `sialu:sync paloalto-threat --persist`.
   Idempotente. Ejecutar con un login sysadmin/securityadmin + db_owner de SIALU:
     sqlcmd -S DESKTOP-36O2DIJ -E -No -d SIALU -b -i scripts\windows-service\grant-scheduler-sql.sql

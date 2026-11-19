@@ -14,7 +14,7 @@ use InvalidArgumentException;
 use Throwable;
 
 /**
- * Monthly availability report of Orion (docs/disponibilidad-mensual.md). The API never queries Orion: requesting a
+ * Monthly availability report of Orion. The API never queries Orion: requesting a
  * capture only registers it (the scheduler runs it) and every report or PDF is rebuilt from stored captures.
  * Users see one report per month (GET /meses/{mes}); captures, their history and requests are administrative
  * diagnosis only.
@@ -111,7 +111,7 @@ class MonthlyAvailabilityController extends Controller
         try {
             $pdf = MonthlyReportPdf::render($report);
         } catch (Throwable $e) {
-            Log::warning('No fue posible generar el PDF de disponibilidad mensual.', ['type' => class_basename($e)]);
+            Log::warning('No fue posible generar el PDF de disponibilidad mensual.', ['exception' => $e]);
 
             return response()->json(['message' => 'No fue posible generar el PDF.'], 500);
         }

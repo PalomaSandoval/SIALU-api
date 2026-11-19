@@ -11,7 +11,7 @@ use Throwable;
 
 /**
  * Availability by area (Orion Department), with the breakdown by location (Orion City) and node, for whole UTC days.
- * Read only and queried live from Orion. Contract: docs/disponibilidad-areas.md.
+ * Read only and queried live from Orion.
  */
 class AreaAvailabilityController extends Controller
 {

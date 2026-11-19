@@ -5,7 +5,7 @@ namespace App\Services\Availability\Monthly;
 use Carbon\CarbonImmutable;
 
 /**
- * When SIALU queries Orion for a closed month (docs/disponibilidad-mensual.md, «Proceso automático»).
+ * When SIALU queries Orion for a closed month.
  *
  * Orion only gives a month M as «Last Month» while its local date (UTC-6) is in M+1. So the window of M is the
  * month M+1, from `start_at` (local time) on its first day until its last instant. Inside the window:

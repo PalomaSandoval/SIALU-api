@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  Compila e instala el servicio de Windows SialuScheduler (Laravel Scheduler de SIALU). Ver docs/programador.md.
+  Compila e instala el servicio de Windows SialuScheduler (Laravel Scheduler de SIALU).
 .DESCRIPTION
   -BuildOnly solo compila (no requiere administrador). La instalación requiere PowerShell como administrador,
   no sobrescribe un servicio existente y no inicia el servicio salvo con -Start.
@@ -13,7 +13,7 @@
 #>
 param(
     [string]$PhpPath = 'C:\xampp\php\php.exe',
-    # Cuenta virtual por defecto (sin contraseña). Necesita un login en SQL Server; ver docs/programador.md.
+    # Cuenta virtual por defecto (sin contraseña). Necesita un login en SQL Server.
     [string]$Account = 'NT SERVICE\SialuScheduler',
     # Cuenta con contraseña (local o de dominio) en lugar de la cuenta virtual.
     [pscredential]$Credential,
@@ -88,7 +88,7 @@ if ($LASTEXITCODE -ne 0) { throw "icacls no pudo dar permisos de modificación e
 
 Write-Output "Servicio $serviceName instalado. Cuenta: $runAs. Dependencias: $($DependsOn -join ', ')"
 Write-Output "Línea de comandos: $binPath"
-Write-Output "Pendiente: login de SQL Server para $runAs con los permisos de SIALU en la base (ver docs/programador.md)."
+    Write-Output "Pendiente: login de SQL Server para $runAs con los permisos de SIALU en la base."
 if ($Start) {
     Start-Service -Name $serviceName
     Get-Service -Name $serviceName | Format-Table Name, Status, StartType -AutoSize

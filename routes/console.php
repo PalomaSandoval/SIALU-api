@@ -15,16 +15,22 @@ Event::listen(ScheduledTaskFailed::class, function (ScheduledTaskFailed $failed)
 });
 
 // Programador de Laravel. Lo ejecuta cada minuto el servicio de Windows SialuScheduler
-// (scripts/windows-service); ver docs/programador.md. Orion estado de nodos, Orion eventos DOWN/UP y Palo Alto THREAT.
-// TRAFFIC y sialu:paloalto-watch NO se programan (ver docs/integraciones.md).
+// (scripts/windows-service). Orion estado de nodos, Orion eventos DOWN/UP y Palo Alto THREAT.
+// TRAFFIC y sialu:paloalto-watch NO se programan.
 
-$orionStatus = config('sialu.schedule.orion_status');
-$lockMinutes = (int) ($orionStatus['lock_minutes'] ?? 10);
-if ($lockMinutes < 1 || $lockMinutes > 60) {
-    // No se lanza excepción: rompería todos los comandos artisan, no solo el programador.
-    Log::warning('ORION_STATUS_SCHEDULE_LOCK_MINUTES fuera de 1-60; se usan 10.', ['valor' => $lockMinutes]);
-    $lockMinutes = 10;
-}
+// Valor numérico de sialu.schedule.{$job}.{$key}; fuera de rango se registra y se usa $default.
+// No se lanza excepción: rompería todos los comandos artisan, no solo el programador.
+$limit = function (string $job, string $key, int $default, int $min, int $max): int {
+    $value = (int) (config("sialu.schedule.{$job}.{$key}") ?? $default);
+    if ($value < $min || $value > $max) {
+        Log::warning(strtoupper("{$job}_SCHEDULE_{$key}")." fuera de {$min}-{$max}; se usa {$default}.", ['valor' => $value]);
+
+        return $default;
+    }
+
+    return $value;
+};
+$lockMinutes = $limit('orion_status', 'lock_minutes', 10, 1, 60);
 
 // Cada 5 minutos, menor que ORION_STATUS_MAX_AGE_MINUTES (15). Sin ejecuciones simultáneas: si la
 // anterior sigue en curso esta se omite; si un proceso muere, el bloqueo caduca a los $lockMinutes.
@@ -42,11 +48,7 @@ Schedule::command('sialu:orion-status --persist')
 // Cada 5 minutos; 500 × 20 = 10 000 eventos por ejecución, suficiente para alcanzar un retraso de días
 // (≈ 25 eventos/día medidos el 2026-11-11). Cada lectura completa guarda read_until en el cursor, que es
 // lo que el tablero usa para presentar la actividad como actual (ORION_EVENTS_MAX_AGE_MINUTES).
-$orionEventsLock = (int) (config('sialu.schedule.orion_events.lock_minutes') ?? 10);
-if ($orionEventsLock < 1 || $orionEventsLock > 60) {
-    Log::warning('ORION_EVENTS_SCHEDULE_LOCK_MINUTES fuera de 1-60; se usan 10.', ['valor' => $orionEventsLock]);
-    $orionEventsLock = 10;
-}
+$orionEventsLock = $limit('orion_events', 'lock_minutes', 10, 1, 60);
 Schedule::command('sialu:sync orion --persist --page-size=500 --max-pages=20')
     ->name('sialu-orion-events')
     ->description('Orion: eventos DOWN/UP de nodos')
@@ -61,20 +63,9 @@ Schedule::command('sialu:sync orion --persist --page-size=500 --max-pages=20')
 // congelada en el cursor y la siguiente ejecución continúa donde quedó.
 // Sin ejecuciones simultáneas: mutex de Laravel y, además, el flock no bloqueante del cursor
 // (una ejecución manual concurrente hace fallar a la programada, y queda registrada como FAIL).
-$threat = config('sialu.schedule.paloalto_threat');
-$threatLimit = function (string $key, int $default, int $min, int $max) use ($threat) {
-    $value = (int) ($threat[$key] ?? $default);
-    if ($value < $min || $value > $max) {
-        Log::warning("PALOALTO_THREAT_SCHEDULE_".strtoupper($key)." fuera de {$min}-{$max}; se usa {$default}.", ['valor' => $value]);
-
-        return $default;
-    }
-
-    return $value;
-};
-$threatLock = $threatLimit('lock_minutes', 30, 1, 60);
-$threatPageSize = $threatLimit('page_size', 500, 1, 5000);
-$threatMaxPages = $threatLimit('max_pages', 20, 1, 1000);
+$threatLock = $limit('paloalto_threat', 'lock_minutes', 30, 1, 60);
+$threatPageSize = $limit('paloalto_threat', 'page_size', 500, 1, 5000);
+$threatMaxPages = $limit('paloalto_threat', 'max_pages', 20, 1, 1000);
 
 Schedule::command("sialu:sync paloalto-threat --persist --page-size={$threatPageSize} --max-pages={$threatMaxPages}")
     ->name('sialu-paloalto-threat')
@@ -84,7 +75,7 @@ Schedule::command("sialu:sync paloalto-threat --persist --page-size={$threatPage
     ->when(fn () => (bool) config('sialu.schedule.paloalto_threat.enabled'))
     ->appendOutputTo(storage_path('logs/paloalto-threat-schedule.log'));
 
-// Reporte mensual de disponibilidad (docs/disponibilidad-mensual.md). Las solicitudes se atienden aquí, una a la vez
+// Reporte mensual de disponibilidad. Las solicitudes se atienden aquí, una a la vez
 // (≈ 3-4 min para 168 nodos en una sola sesión web). Las capturas cuyo proceso muere se cierran como FALLIDA tras
 // 10 min sin latido.
 Schedule::command('sialu:orion-monthly-capture --process')
@@ -104,6 +95,13 @@ if (! \App\Services\Availability\Monthly\MonthlyCapturePlanner::validStartAt((st
 Schedule::command('sialu:orion-monthly-capture --ensure')
     ->name('sialu-orion-monthly-ensure')
     ->description('Orion: asegurar la captura del mes cerrado')
+    ->everyFiveMinutes()
+    ->withoutOverlapping(10)
+    ->when(fn () => (bool) config('sialu.schedule.orion_monthly.enabled'))
+    ->appendOutputTo(storage_path('logs/orion-monthly-schedule.log'));
+Schedule::command('sialu:orion-monthly-capture --ensure-current')
+    ->name('sialu-orion-monthly-current')
+    ->description('Orion: actualizar la vista provisional del mes actual')
     ->everyFiveMinutes()
     ->withoutOverlapping(10)
     ->when(fn () => (bool) config('sialu.schedule.orion_monthly.enabled'))

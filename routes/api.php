@@ -33,7 +33,7 @@ Route::prefix('v1')->group(function (): void {
             Route::get('/monitoreo/disponibilidad/areas', [\App\Http\Controllers\AreaAvailabilityController::class, 'show'])->name('monitoreo.disponibilidad.areas');
             Route::get('/monitoreo/disponibilidad/nodos/orion', [\App\Http\Controllers\OrionNodesController::class, 'index'])->name('monitoreo.disponibilidad.nodos.orion');
             Route::get('/monitoreo/disponibilidad/nodos/{nodeId}/orion',[\App\Http\Controllers\NodeAvailabilityStatsController::class, 'show'])->name('monitoreo.disponibilidad.nodo.orion');
-            // Reporte mensual (docs/disponibilidad-mensual.md): un reporte por mes leído de capturas guardadas. Las capturas
+            // Reporte mensual: un reporte por mes leído de capturas guardadas. Las capturas
             // (historial, estado y solicitudes expresas) son diagnóstico de administradores.
             Route::prefix('/monitoreo/disponibilidad/reporte-mensual')->name('monitoreo.disponibilidad.mensual.')->group(function (): void {
                 Route::get('/capturas', [\App\Http\Controllers\MonthlyAvailabilityController::class, 'index'])->middleware('sialu.role:ADMINISTRADOR')->name('capturas');

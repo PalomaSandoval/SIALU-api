@@ -6,13 +6,22 @@ $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 try {
     App\Services\Ingestion\IngestionDatabase::verifyConfiguredConnection();
     $db=Illuminate\Support\Facades\DB::connection('sqlsrv');
-    $files=['008_zonas_presentacion.sql','009_integridad_catalogos.sql','010_paloalto_contexto.sql','012_grupos_infraestructura.sql'];
+    // The original catalogue baseline is installed in SQL Server. This runner only applies later upgrades.
+    if (!$db->getSchemaBuilder()->hasTable('SialuSchemaChanges') ||
+        !$db->table('dbo.SialuSchemaChanges')->where('Version','catalog-integrity-2026-10-26-v1')->exists()) {
+        throw new RuntimeException('Falta catalog-integrity-2026-10-26-v1. Instale primero el esquema base desde el paquete SQL versionado.');
+    }
+    foreach (['fnRedDeIP'=>'IF','sp_catdActivoIP'=>'P','sp_catdActivoIdentificadorFuente'=>'P'] as $name=>$type) {
+        if ($db->selectOne('SELECT OBJECT_ID(?, ?) AS id', ['dbo.'.$name, $type])->id === null) {
+            throw new RuntimeException('Falta dbo.'.$name.' en SQL Server. Instale la definición antes de migrar.');
+        }
+    }
     $issues=[];
     foreach ($db->table('dbo.catdActivoIP')->get() as $row) {
         if (@inet_pton($row->DireccionIP) === false) $issues[]='IP inválida en asignación '.$row->IdActivoIP;
     }
     if ($issues) throw new RuntimeException(implode("\n",$issues));
-    echo 'Preflight: base verificada, IP válidas. Migraciones: '.implode(', ',$files).PHP_EOL;
+    echo 'Preflight: base y procedimientos verificados, IP válidas. Migraciones posteriores: 013, 014, 015.'.PHP_EOL;
     if (!in_array('--apply',$argv,true) && !in_array('--check',$argv,true)) { echo "Sin escrituras. Use --apply para instalar.\n"; exit(0); }
     $checking=in_array('--check',$argv,true);
     if ($checking) $db->beginTransaction();
@@ -26,11 +35,10 @@ try {
         if(file_put_contents($path,json_encode($backup,JSON_THROW_ON_ERROR|JSON_PRETTY_PRINT))===false)throw new RuntimeException('No se pudo respaldar la configuración.');
         echo 'Respaldo local: '.$path.PHP_EOL;
     }
-    $db->transaction(function () use ($db,$files) {
+    $db->transaction(function () use ($db) {
         $lock=$db->selectOne("DECLARE @r int; EXEC @r=sys.sp_getapplock @Resource='SIALU:migration:catalogs', @LockMode='Exclusive', @LockOwner='Transaction', @LockTimeout=10000; SELECT @r result");
         if ((int)$lock->result<0) throw new RuntimeException('No se obtuvo bloqueo de migración.');
         $db->unprepared('SET XACT_ABORT ON; SET ANSI_NULLS ON; SET QUOTED_IDENTIFIER ON; SET ANSI_PADDING ON; SET ANSI_WARNINGS ON; SET CONCAT_NULL_YIELDS_NULL ON; SET ARITHABORT ON; SET NUMERIC_ROUNDABORT OFF;');
-        $db->unprepared("IF OBJECT_ID('dbo.SialuSchemaChanges','U') IS NULL CREATE TABLE dbo.SialuSchemaChanges (Version varchar(100) PRIMARY KEY, AppliedAt datetime2(3) NOT NULL DEFAULT SYSUTCDATETIME())");
         $upgrade=function()use($db){
             foreach(['catalog-canonical-ip-v2'=>'013_ip_canonica.sql','catalog-interfaces-v3'=>'014_interfaces.sql','catalog-retire-institutional-units-v4'=>'015_retirar_unidades_institucionales.sql'] as $version=>$file) {
                 if($db->table('dbo.SialuSchemaChanges')->where('Version',$version)->exists())continue;
@@ -39,27 +47,6 @@ try {
                 $db->table('dbo.SialuSchemaChanges')->insert(['Version'=>$version]);
             }
         };
-        if($db->table('dbo.SialuSchemaChanges')->where('Version','catalog-integrity-2026-10-26-v1')->exists()) { $upgrade(); return; }
-        foreach ($files as $file) {
-            foreach (preg_split('/^\s*GO\s*$/mi',file_get_contents(__DIR__.'/../database/migrations/'.$file)) as $batch) if (trim($batch)!=='') $db->unprepared($batch);
-        }
-        foreach ($db->table('dbo.catdActivoIP')->get() as $row) {
-            $hex=bin2hex(inet_pton($row->DireccionIP));
-            $db->update('UPDATE dbo.catdActivoIP SET IPBin=CONVERT(varbinary(16),?,2) WHERE IdActivoIP=?',[$hex,$row->IdActivoIP]);
-        }
-        $overlaps=$db->selectOne("SELECT TOP(1) a.IdActivoIP FROM dbo.catdActivoIP a JOIN dbo.catdActivoIP b ON a.IdActivoIP<b.IdActivoIP AND a.IPBin=b.IPBin AND ISNULL(a.IdContextoRed,-1)=ISNULL(b.IdContextoRed,-1) AND a.FechaInicio<COALESCE(b.FechaFin,'9999-12-31') AND b.FechaInicio<COALESCE(a.FechaFin,'9999-12-31')");
-        if ($overlaps) throw new RuntimeException('Asignaciones IP superpuestas: conciliar antes de migrar.');
-        foreach(preg_split('/^\s*GO\s*$/mi',file_get_contents(__DIR__.'/../database/migrations/011_identidad_temporal.sql')) as $batch) if(trim($batch)!=='') $db->unprepared($batch);
-        foreach (preg_split('/^\s*GO\s*$/mi',file_get_contents(__DIR__.'/../database/functions/fnRedDeIP.sql')) as $batch) if(trim($batch)!=='') $db->unprepared($batch);
-        // Historical event addresses are populated in bounded batches without changing their text.
-        $db->table('dbo.movdEventos')->select('IdEvento','FechaEvento','IPOrigen','IPDestino')->orderBy('IdEvento')->chunk(500,function($rows) use($db) {
-            foreach($rows as $row) {
-                $o=$row->IPOrigen ? @inet_pton($row->IPOrigen) : false; $d=$row->IPDestino ? @inet_pton($row->IPDestino) : false;
-                $db->update('UPDATE dbo.movdEventos SET IPOrigenBin=CONVERT(varbinary(16),?,2), IPDestinoBin=CONVERT(varbinary(16),?,2) WHERE FechaEvento=? AND IdEvento=?',[$o===false?null:bin2hex($o),$d===false?null:bin2hex($d),$row->FechaEvento,$row->IdEvento]);
-            }
-        });
-        foreach(['sp_catdActivoIP.sql','sp_catdActivoIdentificadorFuente.sql'] as $procedure) foreach(preg_split('/^\s*GO\s*$/mi',file_get_contents(__DIR__.'/../database/procedures/'.$procedure)) as $batch) if(trim($batch)!=='') $db->unprepared($batch);
-        $db->table('dbo.SialuSchemaChanges')->insert(['Version'=>'catalog-integrity-2026-10-26-v1']);
         $upgrade();
     });
     if ($checking) { $db->rollBack(); echo "Migración validada con ROLLBACK.\n"; }

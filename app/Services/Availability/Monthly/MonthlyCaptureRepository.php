@@ -150,8 +150,8 @@ class MonthlyCaptureRepository
     }
 
     /**
-     * Writes the whole capture and closes it in one transaction; selects it for its «Last Month» when it is COMPLETA,
-     * valid and newer than the current selection.
+     * Writes the whole capture and closes it in one transaction. The first complete, valid capture selects its
+     * «Last Month»; later captures remain available for audit without changing the closed month's report.
      *
      * @param  array  $capture  see MonthlyCaptureRunner::collect()
      * @return array{estado: string, valida: bool, motivos: list<string>, hash: string, seleccionada: bool}
@@ -231,16 +231,12 @@ class MonthlyCaptureRepository
             ]);
 
             $selected = false;
-            if ($valid) {
-                $current = $this->selection($capture['mes_anterior']);
-                $currentStart = $current === null ? null : $this->db->table('dbo.movdDispCaptura')->where('IdCaptura', $current['id_captura'])->value('RelojOrionUtcInicio');
-                if ($current === null || CarbonImmutable::parse($currentStart, 'UTC')->lt(CarbonImmutable::parse($capture['reloj_inicio']['utc'], 'UTC'))) {
-                    $this->db->table('dbo.movdDispSeleccionMes')->insert([
-                        'Mes' => $capture['mes_anterior'], 'IdCaptura' => $id, 'IdCapturaAnterior' => $current['id_captura'] ?? null,
-                        'FechaSeleccion' => self::now(), 'Motivo' => 'Última captura completa y validada obtenida durante el mes siguiente.',
-                    ]);
-                    $selected = true;
-                }
+            if ($valid && $this->selection($capture['mes_anterior']) === null) {
+                $this->db->table('dbo.movdDispSeleccionMes')->insert([
+                    'Mes' => $capture['mes_anterior'], 'IdCaptura' => $id, 'IdCapturaAnterior' => null,
+                    'FechaSeleccion' => self::now(), 'Motivo' => 'Primera captura completa y validada del mes cerrado.',
+                ]);
+                $selected = true;
             }
 
             return ['estado' => $state, 'valida' => $valid, 'motivos' => $reasons, 'hash' => $hash, 'seleccionada' => $selected];
@@ -290,7 +286,7 @@ class MonthlyCaptureRepository
     /** @return ?array{id_captura:int, fecha:string, id_seleccion:int} */
     public function selection(string $month): ?array
     {
-        $row = $this->db->table('dbo.movdDispSeleccionMes')->where('Mes', $month)->orderByDesc('IdSeleccion')->first();
+        $row = $this->db->table('dbo.movdDispSeleccionMes')->where('Mes', $month)->orderBy('IdSeleccion')->first();
 
         return $row === null ? null : ['id_captura' => (int) $row->IdCaptura, 'fecha' => self::iso($row->FechaSeleccion), 'id_seleccion' => (int) $row->IdSeleccion];
     }

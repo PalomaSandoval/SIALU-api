@@ -15,9 +15,10 @@ use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
- * Monthly availability captures (docs/disponibilidad-mensual.md).
+ * Monthly availability captures.
  * --ensure: (scheduler) requests the closed month only while it lacks a complete and validated capture and Orion still
  *   offers it, spacing retries (MonthlyCapturePlanner); reports once when a month could not be recovered.
+ * --ensure-current: (scheduler) requests one provisional capture per local Orion day from the configured start time.
  * --status=YYYY-MM: automatic state of a month, without writing.
  * --request: explicit administrative request (MANUAL), even when the month is already validated.
  * --process: closes abandoned captures and runs the oldest pending one (the HTTP API only registers requests).
@@ -26,6 +27,7 @@ use Throwable;
 class OrionMonthlyCaptureCommand extends Command
 {
     protected $signature = 'sialu:orion-monthly-capture {--ensure : Solicitar el mes cerrado si aún no tiene captura validada}
+        {--ensure-current : Solicitar una captura provisional del mes actual una vez al día}
         {--status= : Estado automático de un mes (YYYY-MM), sin escrituras}
         {--request : Solicitud administrativa expresa, aunque el mes ya esté validado}
         {--process : Ejecutar la solicitud pendiente más antigua}
@@ -41,6 +43,11 @@ class OrionMonthlyCaptureCommand extends Command
             $repository = new MonthlyCaptureRepository;
             if ($this->option('ensure')) {
                 $this->ensure($repository, CarbonImmutable::now('UTC'));
+
+                return self::SUCCESS;
+            }
+            if ($this->option('ensure-current')) {
+                $this->ensureCurrent($repository, CarbonImmutable::now('UTC'));
 
                 return self::SUCCESS;
             }
@@ -107,13 +114,35 @@ class OrionMonthlyCaptureCommand extends Command
 
                 return self::SUCCESS;
             }
-            $this->error('Indique --ensure, --status, --request, --process o --import-backup.');
+            $this->error('Indique --ensure, --ensure-current, --status, --request, --process o --import-backup.');
 
             return self::INVALID;
         } catch (Throwable $e) {
             $this->error('No se completó la captura mensual: '.($e instanceof \RuntimeException ? $e->getMessage() : class_basename($e)));
 
             return self::FAILURE;
+        }
+    }
+
+    private function ensureCurrent(MonthlyCaptureRepository $repository, CarbonImmutable $now): void
+    {
+        $month = DowntimeDays::localMonth($now);
+        $previous = MonthlyCaptureRunner::previousMonth($month);
+        if ((new MonthlyCapturePlanner($repository, MonthlyReportService::startAt()))->status($previous, $now)['solicitar']) {
+            return; // The closed month has priority; its capture also contains «This Month».
+        }
+        $day = $now->addHours(DowntimeDays::OFFSET_HOURS)->format('Y-m-d');
+        $from = CarbonImmutable::parse($day.' 00:00:00', 'UTC')->subHours(DowntimeDays::OFFSET_HOURS);
+        [$hour, $minute] = array_map('intval', explode(':', MonthlyReportService::startAt()));
+        if ($now->lt($from->addHours($hour)->addMinutes($minute))
+            || $repository->attempts($from, $from->addDay()) !== []
+            || $repository->openRequest() !== null) {
+            return;
+        }
+
+        $request = $repository->request('PROGRAMADA', null);
+        if ($request['creada']) {
+            $this->info("$month: captura provisional {$request['id']} solicitada para $day.");
         }
     }
 

@@ -83,7 +83,7 @@ class DeviceStatusController extends Controller
         [$owners, $assets] = $this->registry($db, $sourceId, CarbonImmutable::parse($snapshot->FechaConsulta, 'UTC'));
 
         return $this->summarize($db, $owners, $assets, $this->nodes($db, $snapshot->IdInstantanea))
-            + ['consultado_en' => $this->date($snapshot->FechaConsulta), 'ultimo_intento' => null] + $context;
+            + ['consultado_en' => OrionCurrentSnapshot::date($snapshot->FechaConsulta), 'ultimo_intento' => null] + $context;
     }
 
     /** [NodeID => asset ids, asset id => NodeIDs] from the registry in force at $at. */
@@ -181,10 +181,5 @@ class DeviceStatusController extends Controller
             'en_linea' => null, 'caidos' => null, 'sin_estado' => null, 'total' => $total,
             'verificado' => false, 'motivo' => $reason, 'sin_estado_detalle' => null, 'nodos_sin_activo' => null, 'equipos' => null,
         ] + $context + ['consultado_en' => null, 'ultimo_intento' => null, 'fecha' => null];
-    }
-
-    private function date(string $value): string
-    {
-        return CarbonImmutable::parse($value, 'UTC')->format('Y-m-d H:i:s.v');
     }
 }

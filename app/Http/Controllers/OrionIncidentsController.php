@@ -225,8 +225,8 @@ class OrionIncidentsController extends Controller
                 'episodios' => (int) $group->Episodios,
                 'estado_actual' => $state,
                 'episodios_detalle' => array_map(function ($row) use ($start) {
-                    $down = $this->date($row->FechaDown);
-                    $up = $row->FechaUp === null ? null : $this->date($row->FechaUp);
+                    $down = OrionCurrentSnapshot::date($row->FechaDown);
+                    $up = $row->FechaUp === null ? null : OrionCurrentSnapshot::date($row->FechaUp);
 
                     return [
                         'id' => (int) $row->IdDisponibilidad, 'activo_id' => (int) $row->IdActivo,
@@ -292,7 +292,7 @@ class OrionIncidentsController extends Controller
         foreach (array_chunk($nodeIds, 1000) as $chunk) {
             foreach ($db->table('dbo.movdDisponibilidad')->where('IdFuente', $sourceId)->where('TipoObjeto', 'NODO')->whereNull('FechaUp')
                 ->whereIn('ObjetoExterno', $chunk)->get(['IdActivo', 'ObjetoExterno', 'FechaDown']) as $row) {
-                $open[(string) $row->ObjetoExterno][(int) $row->IdActivo] = $this->date($row->FechaDown);
+                $open[(string) $row->ObjetoExterno][(int) $row->IdActivo] = OrionCurrentSnapshot::date($row->FechaDown);
             }
         }
 
@@ -342,10 +342,5 @@ class OrionIncidentsController extends Controller
     private function format(?CarbonImmutable $date): ?string
     {
         return $date?->utc()->format('Y-m-d H:i:s.v');
-    }
-
-    private function date(string $value): string
-    {
-        return CarbonImmutable::parse($value, 'UTC')->format('Y-m-d H:i:s.v');
     }
 }

@@ -134,7 +134,7 @@ class ThreatSeverityController extends Controller
         return [
             'estado' => 'SIN_ACCESO', 'fuente' => null, 'fecha_consulta' => null,
             'descripcion' => null, 'referencias' => [],
-            'mensaje' => 'SIALU todavía no tiene acceso a una fuente oficial de Palo Alto (Threat Vault) para consultar esta amenaza.',
+            'mensaje' => null,
         ];
     }
 
